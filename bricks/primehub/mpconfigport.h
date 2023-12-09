@@ -54,3 +54,7 @@
 #define PYBRICKS_OPT_NATIVE_MOD                 (1)
 
 #include "../_common_stm32/mpconfigport.h"
+
+#define MICROPY_PY_UTIME            (1)
+#define MICROPY_PY_UTIME_MP_HAL     (1)
+#define MICROPY_PY_UTIMEQ           (1)
