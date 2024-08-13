@@ -20,6 +20,7 @@
 #include <pybricks/util_mp/pb_obj_helper.h>
 
 #include <pybricks/parameters.h>
+#include <pybricks/parameters/pb_type_button.h>
 #include <pybricks/pupdevices.h>
 #include <pybricks/tools.h>
 #include <pybricks/tools/pb_type_awaitable.h>
@@ -30,7 +31,7 @@ void pb_package_pybricks_deinit(void);
 
 #if PYBRICKS_PY_COMMON_BLE
 mp_obj_t pb_type_BLE_new(mp_obj_t broadcast_channel_in, mp_obj_t observe_channels_in);
-void pb_type_BLE_cleanup(void);
+void pb_type_ble_start_cleanup(void);
 #endif
 
 #if PYBRICKS_PY_COMMON_CHARGER
@@ -69,7 +70,7 @@ void pb_type_LightMatrix_display_char(pbio_light_matrix_t *light_matrix, mp_obj_
 
 #if PYBRICKS_PY_COMMON_KEYPAD
 // pybricks._common.KeyPad()
-mp_obj_t pb_type_Keypad_obj_new(uint8_t number_of_buttons, const pb_obj_enum_member_t **buttons, pbio_button_is_pressed_func_t is_pressed);
+mp_obj_t pb_type_Keypad_obj_new(pb_type_button_get_pressed_t get_pressed);
 #endif
 
 // pybricks._common.Battery()
@@ -121,6 +122,8 @@ typedef struct {
 extern const mp_obj_type_t pb_type_Motor;
 extern const mp_obj_type_t pb_type_DCMotor;
 
+pbio_servo_t *pb_type_motor_get_servo(mp_obj_t motor_in);
+
 #endif // PYBRICKS_PY_COMMON_MOTORS
 
 #if PYBRICKS_PY_COMMON_SPEAKER
@@ -131,7 +134,7 @@ extern const mp_obj_type_t pb_type_Speaker;
 
 #if PYBRICKS_PY_COMMON_IMU
 
-mp_obj_t pb_type_IMU_obj_new(mp_obj_t top_side_axis, mp_obj_t front_side_axis);
+mp_obj_t pb_type_IMU_obj_new(mp_obj_t hub_in, mp_obj_t top_side_axis, mp_obj_t front_side_axis);
 
 #endif // PYBRICKS_PY_COMMON_IMU
 

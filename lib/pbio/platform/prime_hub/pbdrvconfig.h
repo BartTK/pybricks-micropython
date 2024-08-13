@@ -70,6 +70,7 @@
 #define PBDRV_CONFIG_IOPORT_PUP                     (1)
 #define PBDRV_CONFIG_IOPORT_NUM_DEV                 (6)
 #define PBDRV_CONFIG_IOPORT_PUP_QUIRK_POWER_CYCLE   (0)
+#define PBDRV_CONFIG_IOPORT_DEBUG_UART              (0)
 
 #define PBDRV_CONFIG_LED                            (1)
 #define PBDRV_CONFIG_LED_NUM_DEV                    (5)
@@ -86,7 +87,7 @@
 #define PBDRV_CONFIG_LEGODEV                        (1)
 #define PBDRV_CONFIG_LEGODEV_PUP                    (1)
 #define PBDRV_CONFIG_LEGODEV_PUP_NUM_INT_DEV        (0)
-#define PBDRV_CONFIG_LEGODEV_PUP_NUM_EXT_DEV        (6)
+#define PBDRV_CONFIG_LEGODEV_PUP_NUM_EXT_DEV        (6 - PBDRV_CONFIG_IOPORT_DEBUG_UART)
 #define PBDRV_CONFIG_LEGODEV_PUP_UART               (1)
 #define PBDRV_CONFIG_LEGODEV_MODE_INFO              (1)
 #define PBDRV_CONFIG_LEGODEV_PUP_UART_NUM_DEV       (PBDRV_CONFIG_LEGODEV_PUP_NUM_EXT_DEV)
@@ -118,7 +119,14 @@
 #define PBDRV_CONFIG_UART_STM32F4_LL_IRQ_NUM_UART   (6)
 
 #define PBDRV_CONFIG_USB                            (1)
+#define PBDRV_CONFIG_USB_VID                        LEGO_USB_VID
+#define PBDRV_CONFIG_USB_PID                        0xFFFF
+#define PBDRV_CONFIG_USB_PID_0                      LEGO_USB_PID_SPIKE_PRIME
+#define PBDRV_CONFIG_USB_PID_1                      LEGO_USB_PID_ROBOT_INVENTOR
+#define PBDRV_CONFIG_USB_MFG_STR                    LEGO_USB_MFG_STR
+#define PBDRV_CONFIG_USB_PROD_STR                   LEGO_USB_PROD_STR_TECHNIC_LARGE_HUB " + Pybricks"
 #define PBDRV_CONFIG_USB_STM32F4                    (1)
+#define PBDRV_CONFIG_USB_STM32F4_HUB_VARIANT_ADDR   0x08007d80
 
 #define PBDRV_CONFIG_WATCHDOG                       (1)
 #define PBDRV_CONFIG_WATCHDOG_STM32                 (1)

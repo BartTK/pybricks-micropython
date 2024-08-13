@@ -151,7 +151,7 @@ typedef struct {
 } hubs_MoveHub_IMU_obj_t;
 
 // This is an integer version of pybricks._common.IMU.up
-STATIC mp_obj_t hubs_MoveHub_IMU_up(mp_obj_t self_in) {
+static mp_obj_t hubs_MoveHub_IMU_up(mp_obj_t self_in) {
 
     int8_t values[3];
     motion_get_acceleration_raw(values);
@@ -193,7 +193,7 @@ STATIC mp_obj_t hubs_MoveHub_IMU_up(mp_obj_t self_in) {
 }
 MP_DEFINE_CONST_FUN_OBJ_1(hubs_MoveHub_IMU_up_obj, hubs_MoveHub_IMU_up);
 
-STATIC mp_obj_t hubs_MoveHub_IMU_acceleration(mp_obj_t self_in) {
+static mp_obj_t hubs_MoveHub_IMU_acceleration(mp_obj_t self_in) {
 
     hubs_MoveHub_IMU_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
@@ -208,10 +208,10 @@ STATIC mp_obj_t hubs_MoveHub_IMU_acceleration(mp_obj_t self_in) {
     }
     return mp_obj_new_tuple(3, values);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(hubs_MoveHub_IMU_acceleration_obj, hubs_MoveHub_IMU_acceleration);
+static MP_DEFINE_CONST_FUN_OBJ_1(hubs_MoveHub_IMU_acceleration_obj, hubs_MoveHub_IMU_acceleration);
 
 // pybricks._common.SimpleAccelerometer.tilt
-STATIC mp_obj_t hubs_MoveHub_IMU_tilt(mp_obj_t self_in) {
+static mp_obj_t hubs_MoveHub_IMU_tilt(mp_obj_t self_in) {
 
     hubs_MoveHub_IMU_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
@@ -233,19 +233,19 @@ STATIC mp_obj_t hubs_MoveHub_IMU_tilt(mp_obj_t self_in) {
 }
 MP_DEFINE_CONST_FUN_OBJ_1(hubs_MoveHub_IMU_tilt_obj, hubs_MoveHub_IMU_tilt);
 
-STATIC const mp_rom_map_elem_t hubs_MoveHub_IMU_locals_dict_table[] = {
+static const mp_rom_map_elem_t hubs_MoveHub_IMU_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_acceleration), MP_ROM_PTR(&hubs_MoveHub_IMU_acceleration_obj) },
     { MP_ROM_QSTR(MP_QSTR_up),           MP_ROM_PTR(&hubs_MoveHub_IMU_up_obj)           },
     { MP_ROM_QSTR(MP_QSTR_tilt),         MP_ROM_PTR(&hubs_MoveHub_IMU_tilt_obj) },
 };
-STATIC MP_DEFINE_CONST_DICT(hubs_MoveHub_IMU_locals_dict, hubs_MoveHub_IMU_locals_dict_table);
+static MP_DEFINE_CONST_DICT(hubs_MoveHub_IMU_locals_dict, hubs_MoveHub_IMU_locals_dict_table);
 
-STATIC MP_DEFINE_CONST_OBJ_TYPE(hubs_MoveHub_IMU_type,
-    MP_QSTR_IMU,
+static MP_DEFINE_CONST_OBJ_TYPE(hubs_MoveHub_IMU_type,
+    MP_QSTRnull,
     MP_TYPE_FLAG_NONE,
     locals_dict, &hubs_MoveHub_IMU_locals_dict);
 
-STATIC mp_obj_t hubs_MoveHub_IMU_make_new(mp_obj_t top_side_in, mp_obj_t front_side_in) {
+static mp_obj_t hubs_MoveHub_IMU_make_new(mp_obj_t top_side_in, mp_obj_t front_side_in) {
     hubs_MoveHub_IMU_obj_t *self = mp_obj_malloc(hubs_MoveHub_IMU_obj_t, &hubs_MoveHub_IMU_type);
 
     // Save base orientation.
@@ -313,11 +313,8 @@ typedef struct _hubs_MoveHub_obj_t {
     mp_obj_t system;
 } hubs_MoveHub_obj_t;
 
-static const pb_obj_enum_member_t *movehub_buttons[] = {
-    &pb_Button_CENTER_obj,
-};
 
-STATIC mp_obj_t hubs_MoveHub_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
+static mp_obj_t hubs_MoveHub_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
     PB_PARSE_ARGS_CLASS(n_args, n_kw, args,
         PB_ARG_DEFAULT_INT(top_side, pb_type_Axis_Z_int_enum),
         PB_ARG_DEFAULT_INT(front_side, pb_type_Axis_X_int_enum)
@@ -332,14 +329,14 @@ STATIC mp_obj_t hubs_MoveHub_make_new(const mp_obj_type_t *type, size_t n_args, 
     #if PYBRICKS_PY_COMMON_BLE
     self->ble = pb_type_BLE_new(broadcast_channel_in, observe_channels_in);
     #endif
-    self->button = pb_type_Keypad_obj_new(MP_ARRAY_SIZE(movehub_buttons), movehub_buttons, pbio_button_is_pressed);
+    self->button = pb_type_Keypad_obj_new(pb_type_button_pressed_hub_single_button);
     self->imu = hubs_MoveHub_IMU_make_new(top_side_in, front_side_in);
     self->light = common_ColorLight_internal_obj_new(pbsys_status_light);
     self->system = MP_OBJ_FROM_PTR(&pb_type_System);
     return MP_OBJ_FROM_PTR(self);
 }
 
-STATIC const pb_attr_dict_entry_t hubs_MoveHub_attr_dict[] = {
+static const pb_attr_dict_entry_t hubs_MoveHub_attr_dict[] = {
     PB_DEFINE_CONST_ATTR_RO(MP_QSTR_battery, hubs_MoveHub_obj_t, battery),
     #if PYBRICKS_PY_COMMON_BLE
     PB_DEFINE_CONST_ATTR_RO(MP_QSTR_ble, hubs_MoveHub_obj_t, ble),

@@ -40,7 +40,7 @@ typedef struct _iodevices_PUPDevice_obj_t {
  * @param [in]  port_in     The port.
  * @return                  True if passive device, false otherwise.
  */
-STATIC bool init_passive_pup_device(iodevices_PUPDevice_obj_t *self, mp_obj_t port_in) {
+static bool init_passive_pup_device(iodevices_PUPDevice_obj_t *self, mp_obj_t port_in) {
     pb_module_tools_assert_blocking();
     pbio_port_id_t port = pb_type_enum_get_value(port_in, &pb_enum_type_Port);
     pbdrv_legodev_type_id_t candidates[] = {
@@ -57,7 +57,7 @@ STATIC bool init_passive_pup_device(iodevices_PUPDevice_obj_t *self, mp_obj_t po
 }
 
 // pybricks.iodevices.PUPDevice.__init__
-STATIC mp_obj_t iodevices_PUPDevice_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
+static mp_obj_t iodevices_PUPDevice_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
     PB_PARSE_ARGS_CLASS(n_args, n_kw, args,
         PB_ARG_REQUIRED(port));
 
@@ -75,7 +75,7 @@ STATIC mp_obj_t iodevices_PUPDevice_make_new(const mp_obj_type_t *type, size_t n
 }
 
 // pybricks.iodevices.PUPDevice.info
-STATIC mp_obj_t iodevices_PUPDevice_info(mp_obj_t self_in) {
+static mp_obj_t iodevices_PUPDevice_info(mp_obj_t self_in) {
     iodevices_PUPDevice_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
     // Passive devices only have an ID.
@@ -109,7 +109,7 @@ STATIC mp_obj_t iodevices_PUPDevice_info(mp_obj_t self_in) {
 }
 MP_DEFINE_CONST_FUN_OBJ_1(iodevices_PUPDevice_info_obj, iodevices_PUPDevice_info);
 
-STATIC mp_obj_t get_pup_data_tuple(mp_obj_t self_in) {
+static mp_obj_t get_pup_data_tuple(mp_obj_t self_in) {
     iodevices_PUPDevice_obj_t *self = MP_OBJ_TO_PTR(self_in);
     void *data = pb_type_device_get_data(self_in, self->last_mode);
 
@@ -143,7 +143,7 @@ STATIC mp_obj_t get_pup_data_tuple(mp_obj_t self_in) {
 }
 
 // pybricks.iodevices.PUPDevice.read
-STATIC mp_obj_t iodevices_PUPDevice_read(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+static mp_obj_t iodevices_PUPDevice_read(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
         iodevices_PUPDevice_obj_t, self,
         PB_ARG_REQUIRED(mode));
@@ -162,12 +162,15 @@ STATIC mp_obj_t iodevices_PUPDevice_read(size_t n_args, const mp_obj_t *pos_args
         .mode = self->last_mode,
         .get_values = get_pup_data_tuple,
     };
+
+    // This will take care of checking that the requested mode exist and raise
+    // otherwise, so no need to check here.
     return pb_type_device_method_call(MP_OBJ_FROM_PTR(&method), 1, 0, pos_args);
 }
 MP_DEFINE_CONST_FUN_OBJ_KW(iodevices_PUPDevice_read_obj, 1, iodevices_PUPDevice_read);
 
 // pybricks.iodevices.PUPDevice.write
-STATIC mp_obj_t iodevices_PUPDevice_write(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+static mp_obj_t iodevices_PUPDevice_write(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
         iodevices_PUPDevice_obj_t, self,
         PB_ARG_REQUIRED(mode),
@@ -181,39 +184,58 @@ STATIC mp_obj_t iodevices_PUPDevice_write(size_t n_args, const mp_obj_t *pos_arg
     // Get requested mode.
     uint8_t mode = mp_obj_get_int(mode_in);
 
-    // Unpack the user data tuple
-    mp_obj_t *values;
-    size_t num_values;
-    mp_obj_get_array(data_in, &num_values, &values);
-    if (num_values == 0 || num_values > PBDRV_LEGODEV_MAX_DATA_SIZE) {
-        pb_assert(PBIO_ERROR_INVALID_ARG);
-    }
-
+    // Gets expected format for currently connected device.
     uint8_t data[PBDRV_LEGODEV_MAX_DATA_SIZE];
     pbdrv_legodev_info_t *info;
     pb_assert(pbdrv_legodev_get_info(self->device_base.legodev, &info));
+    if (mode >= info->num_modes) {
+        mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Invalid mode"));
+    }
 
     pbdrv_legodev_mode_info_t *mode_info = &info->mode_info[mode];
     if (!mode_info->writable) {
-        pb_assert(PBIO_ERROR_INVALID_OP);
+        mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Mode not writable"));
+    }
+
+    // Unpack the user data tuple
+    mp_obj_t *values;
+    size_t num_values_given;
+    mp_obj_get_array(data_in, &num_values_given, &values);
+    if (num_values_given == 0 || num_values_given != mode_info->num_values) {
+        mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("Expected %d values"), mode_info->num_values);
     }
 
     uint8_t size = 0;
 
     for (uint8_t i = 0; i < mode_info->num_values; i++) {
         switch (mode_info->data_type) {
-            case PBDRV_LEGODEV_DATA_TYPE_INT8:
-                *(int8_t *)(data + i) = pbio_int_math_clamp(mp_obj_get_int(values[i]), INT8_MAX);
+            case PBDRV_LEGODEV_DATA_TYPE_INT8: {
+                mp_int_t value = mp_obj_get_int(values[i]);
+                if (value > INT8_MAX || value < INT8_MIN) {
+                    mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Value out of range for int8"));
+                }
+                *(int8_t *)(data + i) = value;
                 size = sizeof(int8_t) * mode_info->num_values;
                 break;
-            case PBDRV_LEGODEV_DATA_TYPE_INT16:
-                *(int16_t *)(data + i * 2) = pbio_int_math_clamp(mp_obj_get_int(values[i]), INT16_MAX);
+            }
+            case PBDRV_LEGODEV_DATA_TYPE_INT16: {
+                mp_int_t value = mp_obj_get_int(values[i]);
+                if (value > INT16_MAX || value < INT16_MIN) {
+                    mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Value out of range for int16"));
+                }
+                *(int16_t *)(data + i * 2) = value;
                 size = sizeof(int16_t) * mode_info->num_values;
                 break;
-            case PBDRV_LEGODEV_DATA_TYPE_INT32:
-                *(int32_t *)(data + i * 4) = pbio_int_math_clamp(mp_obj_get_int(values[i]), INT32_MAX);
+            }
+            case PBDRV_LEGODEV_DATA_TYPE_INT32: {
+                mp_int_t value = mp_obj_get_int(values[i]);
+                if (value > INT32_MAX || value < INT32_MIN) {
+                    mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Value out of range for int32"));
+                }
+                *(int32_t *)(data + i * 4) = value;
                 size = sizeof(int32_t) * mode_info->num_values;
                 break;
+            }
             #if MICROPY_PY_BUILTINS_FLOAT
             case PBDRV_LEGODEV_DATA_TYPE_FLOAT:
                 *(float *)(data + i * 4) = mp_obj_get_float_to_f(values[i]);
@@ -230,12 +252,12 @@ STATIC mp_obj_t iodevices_PUPDevice_write(size_t n_args, const mp_obj_t *pos_arg
 MP_DEFINE_CONST_FUN_OBJ_KW(iodevices_PUPDevice_write_obj, 1, iodevices_PUPDevice_write);
 
 // dir(pybricks.iodevices.PUPDevice)
-STATIC const mp_rom_map_elem_t iodevices_PUPDevice_locals_dict_table[] = {
+static const mp_rom_map_elem_t iodevices_PUPDevice_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_read),       MP_ROM_PTR(&iodevices_PUPDevice_read_obj) },
     { MP_ROM_QSTR(MP_QSTR_write),      MP_ROM_PTR(&iodevices_PUPDevice_write_obj)},
     { MP_ROM_QSTR(MP_QSTR_info),       MP_ROM_PTR(&iodevices_PUPDevice_info_obj)},
 };
-STATIC MP_DEFINE_CONST_DICT(iodevices_PUPDevice_locals_dict, iodevices_PUPDevice_locals_dict_table);
+static MP_DEFINE_CONST_DICT(iodevices_PUPDevice_locals_dict, iodevices_PUPDevice_locals_dict_table);
 
 // type(pybricks.iodevices.PUPDevice)
 MP_DEFINE_CONST_OBJ_TYPE(pb_type_iodevices_PUPDevice,

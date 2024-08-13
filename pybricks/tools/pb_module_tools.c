@@ -16,6 +16,7 @@
 #include <pbio/task.h>
 #include <pbsys/light.h>
 #include <pbsys/program_stop.h>
+#include <pbsys/status.h>
 
 #include <pybricks/parameters.h>
 #include <pybricks/common.h>
@@ -29,7 +30,7 @@
 
 // Global state of the run loop for async user programs. Gets set when run_task
 // is called and cleared when it completes
-STATIC bool run_loop_is_active;
+static bool run_loop_is_active;
 
 bool pb_module_tools_run_loop_is_active(void) {
     return run_loop_is_active;
@@ -47,11 +48,11 @@ void pb_module_tools_assert_blocking(void) {
 // us share the same code with other awaitables. It also minimizes allocation.
 MP_REGISTER_ROOT_POINTER(mp_obj_t wait_awaitables);
 
-STATIC bool pb_module_tools_wait_test_completion(mp_obj_t obj, uint32_t end_time) {
+static bool pb_module_tools_wait_test_completion(mp_obj_t obj, uint32_t end_time) {
     return mp_hal_ticks_ms() - end_time < UINT32_MAX / 2;
 }
 
-STATIC mp_obj_t pb_module_tools_wait(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+static mp_obj_t pb_module_tools_wait(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     PB_PARSE_ARGS_FUNCTION(n_args, pos_args, kw_args,
         PB_ARG_REQUIRED(time));
 
@@ -79,7 +80,7 @@ STATIC mp_obj_t pb_module_tools_wait(size_t n_args, const mp_obj_t *pos_args, mp
         pb_type_awaitable_cancel_none,
         PB_TYPE_AWAITABLE_OPT_NONE);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_KW(pb_module_tools_wait_obj, 0, pb_module_tools_wait);
+static MP_DEFINE_CONST_FUN_OBJ_KW(pb_module_tools_wait_obj, 0, pb_module_tools_wait);
 
 /**
  * Waits for a task to complete.
@@ -115,6 +116,11 @@ void pb_module_tools_pbio_task_do_blocking(pbio_task_t *task, mp_int_t timeout) 
 
         while (task->status == PBIO_ERROR_AGAIN) {
             MICROPY_VM_HOOK_LOOP
+
+            // Stop waiting (and potentially blocking) in case of forced shutdown.
+            if (pbsys_status_test(PBIO_PYBRICKS_STATUS_SHUTDOWN_REQUEST)) {
+                break;
+            }
         }
 
         nlr_jump(nlr.ret_val);
@@ -127,7 +133,7 @@ void pb_module_tools_pbio_task_do_blocking(pbio_task_t *task, mp_int_t timeout) 
 // here instead of with each Bluetooth-related MicroPython object.
 MP_REGISTER_ROOT_POINTER(mp_obj_t pbio_task_awaitables);
 
-STATIC bool pb_module_tools_pbio_task_test_completion(mp_obj_t obj, uint32_t end_time) {
+static bool pb_module_tools_pbio_task_test_completion(mp_obj_t obj, uint32_t end_time) {
     pbio_task_t *task = MP_OBJ_TO_PTR(obj);
 
     // Keep going if not done yet.
@@ -152,27 +158,73 @@ mp_obj_t pb_module_tools_pbio_task_wait_or_await(pbio_task_t *task) {
 }
 
 /**
- * Reads one byte from stdin without blocking.
+ * Reads one byte from stdin without blocking if a byte is available, and
+ * optionally converts it to character representation.
  *
- * @returns The integer value of the byte read or @c None if no data is available.
+ * @param [in]  last    Choose @c True to read until the last byte is read
+ *                      or @c False to get the first available byte.
+ * @param [in]  chr     Choose @c False to return the integer value of the byte.
+ *                      Choose @c True to return a single character string of
+ *                      the resulting byte if it is printable and otherwise
+ *                      return @c None .
+ *
+ * @returns The resulting byte if there was one, converted as above, otherwise @c None .
+ *
  */
-STATIC mp_obj_t pb_module_tools_read_input_byte(void) {
-    if (!(mp_hal_stdio_poll(MP_STREAM_POLL_RD) & MP_STREAM_POLL_RD)) {
-        // No bytes available.
+static mp_obj_t pb_module_tools_read_input_byte(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    PB_PARSE_ARGS_FUNCTION(n_args, pos_args, kw_args,
+        PB_ARG_DEFAULT_FALSE(last),
+        PB_ARG_DEFAULT_FALSE(chr));
+
+    int chr = -1;
+
+    while ((mp_hal_stdio_poll(MP_STREAM_POLL_RD) & MP_STREAM_POLL_RD)) {
+        // REVISIT: In theory, this should not block if mp_hal_stdio_poll() and
+        // mp_hal_stdin_rx_chr() are implemented correctly and nothing happens
+        // in a thread/interrupt/kernel that changes the state.
+        chr = mp_hal_stdin_rx_chr();
+
+        // For last=False, break to stop at first byte. Otherwise, keep reading.
+        if (!mp_obj_is_true(last_in)) {
+            break;
+        }
+    }
+
+    // If no data is available, return None.
+    if (chr < 0) {
         return mp_const_none;
     }
 
-    // REVISIT: In theory, this should not block if mp_hal_stdio_poll() and
-    // mp_hal_stdin_rx_chr() are implemented correctly and nothing happens
-    // in a thread/interrupt/kernel that changes the state.
-    return MP_OBJ_NEW_SMALL_INT(mp_hal_stdin_rx_chr());
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_0(pb_module_tools_read_input_byte_obj, pb_module_tools_read_input_byte);
+    // If chr=False, return the integer value of the byte.
+    if (!mp_obj_is_true(chr_in)) {
+        return MP_OBJ_NEW_SMALL_INT(chr);
+    }
 
-STATIC mp_obj_t pb_module_tools_run_task(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    // If char requested but not printable, return None.
+    if (chr < 32 || chr > 126) {
+        return mp_const_none;
+    }
+
+    // Return the character as a string.
+    const char result[] = {chr};
+    return mp_obj_new_str(result, sizeof(result));
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(pb_module_tools_read_input_byte_obj, 0, pb_module_tools_read_input_byte);
+
+static mp_obj_t pb_module_tools_run_task(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     PB_PARSE_ARGS_FUNCTION(n_args, pos_args, kw_args,
-        PB_ARG_REQUIRED(task),
+        PB_ARG_DEFAULT_NONE(task),
         PB_ARG_DEFAULT_INT(loop_time, 10));
+
+    // Without args, this function is used to test if the run loop is active.
+    if (n_args == 0) {
+        return mp_obj_new_bool(run_loop_is_active);
+    }
+
+    // Can only run one loop at a time.
+    if (run_loop_is_active) {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("Run loop already active."));
+    }
 
     run_loop_is_active = true;
 
@@ -208,7 +260,7 @@ STATIC mp_obj_t pb_module_tools_run_task(size_t n_args, const mp_obj_t *pos_args
     }
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_KW(pb_module_tools_run_task_obj, 1, pb_module_tools_run_task);
+static MP_DEFINE_CONST_FUN_OBJ_KW(pb_module_tools_run_task_obj, 0, pb_module_tools_run_task);
 
 // Reset global awaitable state when user program starts.
 void pb_module_tools_init(void) {
@@ -219,7 +271,7 @@ void pb_module_tools_init(void) {
 
 #if PYBRICKS_PY_TOOLS_HUB_MENU
 
-STATIC void pb_module_tools_hub_menu_display_symbol(mp_obj_t symbol) {
+static void pb_module_tools_hub_menu_display_symbol(mp_obj_t symbol) {
     if (mp_obj_is_str(symbol)) {
         pb_type_LightMatrix_display_char(pbsys_hub_light_matrix, symbol);
     } else {
@@ -233,7 +285,7 @@ STATIC void pb_module_tools_hub_menu_display_symbol(mp_obj_t symbol) {
  * @param [in]  press   Choose @c true to wait for press or @c false to wait for release.
  * @returns             When waiting for pressed, it returns the button that was pressed, otherwise returns 0.
  */
-STATIC pbio_button_flags_t pb_module_tools_hub_menu_wait_for_press(bool press) {
+static pbio_button_flags_t pb_module_tools_hub_menu_wait_for_press(bool press) {
 
     // This function should only be used in a blocking context.
     pb_module_tools_assert_blocking();
@@ -254,7 +306,7 @@ STATIC pbio_button_flags_t pb_module_tools_hub_menu_wait_for_press(bool press) {
  * @param [in]  n_args  The number of args.
  * @param [in]  args    The args passed in Python code (the menu entries).
  */
-STATIC mp_obj_t pb_module_tools_hub_menu(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t pb_module_tools_hub_menu(size_t n_args, const mp_obj_t *args) {
 
     // Validate arguments by displaying all of them, ending with the first.
     // This ensures we fail right away instead of midway through the menu. It
@@ -307,11 +359,11 @@ STATIC mp_obj_t pb_module_tools_hub_menu(size_t n_args, const mp_obj_t *args) {
         return mp_const_none;
     }
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR(pb_module_tools_hub_menu_obj, 2, pb_module_tools_hub_menu);
+static MP_DEFINE_CONST_FUN_OBJ_VAR(pb_module_tools_hub_menu_obj, 2, pb_module_tools_hub_menu);
 
 #endif // PYBRICKS_PY_TOOLS_HUB_MENU
 
-STATIC const mp_rom_map_elem_t tools_globals_table[] = {
+static const mp_rom_map_elem_t tools_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__),    MP_ROM_QSTR(MP_QSTR_tools)                    },
     { MP_ROM_QSTR(MP_QSTR_wait),        MP_ROM_PTR(&pb_module_tools_wait_obj)         },
     { MP_ROM_QSTR(MP_QSTR_read_input_byte), MP_ROM_PTR(&pb_module_tools_read_input_byte_obj) },
@@ -329,7 +381,7 @@ STATIC const mp_rom_map_elem_t tools_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_Axis),        MP_ROM_PTR(&pb_enum_type_Axis) },
     #endif // MICROPY_PY_BUILTINS_FLOAT
 };
-STATIC MP_DEFINE_CONST_DICT(pb_module_tools_globals, tools_globals_table);
+static MP_DEFINE_CONST_DICT(pb_module_tools_globals, tools_globals_table);
 
 const mp_obj_module_t pb_module_tools = {
     .base = { &mp_type_module },

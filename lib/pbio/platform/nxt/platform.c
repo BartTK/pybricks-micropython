@@ -14,8 +14,18 @@
 #include <pbsys/program_stop.h>
 #include <pbsys/status.h>
 
-#include "nxos/_display.h"
-#include "nxos/drivers/bt.h"
+#include <nxos/_display.h>
+#include <nxos/assert.h>
+#include <nxos/drivers/_aic.h>
+#include <nxos/drivers/_avr.h>
+#include <nxos/drivers/_lcd.h>
+#include <nxos/drivers/_motors.h>
+#include <nxos/drivers/_sensors.h>
+#include <nxos/drivers/_usb.h>
+#include <nxos/drivers/bt.h>
+#include <nxos/drivers/i2c.h>
+#include <nxos/drivers/systick.h>
+#include <nxos/interrupts.h>
 
 #include "../../drv/legodev/legodev_nxt.h"
 
@@ -114,19 +124,34 @@ static bool bluetooth_connect(void) {
     return true;
 }
 
-// For now, this file is the main entry point for NXT. Eventually, this
-// can be dropped and we can use main() in pbsys/main.
-// For now it enters the MicroPython REPL directly for convenient debugging.
+// Called from assembly code in startup.S
+void SystemInit(void) {
+    nx__aic_init();
+    // TODO: can probably move nx_interrupts_enable() to pbdrv/core.c under
+    // PBDRV_CONFIG_INIT_ENABLE_INTERRUPTS_ARM after nx_systick_wait_ms()
+    // is removed
+    nx_interrupts_enable(0);
 
-/**
- * Initializes the PBIO library, runs custom main program, and handles shutdown.
- *
- * @param [in]  main    The main program.
- */
-int main(int argc, char **argv) {
+    // Clock init must be first, since almost everything depends on clocks.
+    // This probably should be moved here instead of in pbdrv_clock_init, just
+    // as we do on other platforms.
+    extern void pbdrv_clock_init(void);
+    pbdrv_clock_init();
 
-    pbio_init();
-    pbsys_init();
+    // TODO: we should be able to convert these to generic pbio drivers and use
+    // pbdrv_init_busy instead of busy waiting for 100ms.
+    nx__avr_init();
+    nx__motors_init();
+    nx__lcd_init();
+    nx__display_init();
+    nx__sensors_init();
+    nx__usb_init();
+    nx_i2c_init();
+
+    /* Delay a little post-init, to let all the drivers settle down. */
+    nx_systick_wait_ms(100);
+
+    // REVISIT: Integrate via pbsys/bluetooth
 
     // Accept incoming serial connection and get ready to read first byte.
     if (bluetooth_connect()) {
@@ -145,68 +170,5 @@ int main(int argc, char **argv) {
 
         nx_display_string("Connected. REPL.\n");
     out:;
-    }
-
-    // Keep loading and running user programs until shutdown is requested.
-    while (!pbsys_status_test(PBIO_PYBRICKS_STATUS_SHUTDOWN_REQUEST)) {
-
-        // Receive a program. This cancels itself on shutdown.
-        static pbsys_main_program_t program;
-        #if 0
-        pbio_error_t err = pbsys_program_load_wait_command(&program);
-        if (err != PBIO_SUCCESS) {
-            continue;
-        }
-        #endif
-
-        static char heap[32 * 1024];
-        program.run_builtin = true,
-        program.code_end = heap,
-        program.data_end = heap + sizeof(heap),
-
-        // Prepare pbsys for running the program.
-        pbsys_status_set(PBIO_PYBRICKS_STATUS_USER_PROGRAM_RUNNING);
-        // pbsys_bluetooth_rx_set_callback(pbsys_main_stdin_event);
-
-        // Handle pending events triggered by the status change, such as
-        // starting status light animation.
-        while (pbio_do_one_event()) {
-        }
-
-        // Run the main application.
-        pbsys_main_run_program(&program);
-
-        // Get system back in idle state.
-        pbsys_status_clear(PBIO_PYBRICKS_STATUS_USER_PROGRAM_RUNNING);
-        // pbsys_bluetooth_rx_set_callback(NULL);
-        pbsys_program_stop_set_buttons(PBIO_BUTTON_CENTER);
-        pbio_stop_all(true);
-    }
-
-    // Stop system processes and save user data before we shutdown.
-    pbsys_deinit();
-
-    // Now lower-level processes may shutdown and/or power off.
-    pbsys_status_set(PBIO_PYBRICKS_STATUS_SHUTDOWN);
-
-    // The power could be held on due to someone pressing the center button
-    // or USB being plugged in, so we have this loop to keep pumping events
-    // to turn off most of the peripherals and keep the battery charger running.
-    for (;;) {
-        // We must handle all pending events before turning the power off the
-        // first time, otherwise the city hub turns itself back on sometimes.
-        while (pbio_do_one_event()) {
-        }
-
-        #if PBSYS_CONFIG_BATTERY_CHARGER
-        // On hubs with USB battery chargers, we can't turn off power while
-        // USB is connected, otherwise it disables the op-amp that provides
-        // the battery voltage to the ADC.
-        if (pbdrv_usb_get_bcd() != PBDRV_USB_BCD_NONE) {
-            continue;
-        }
-        #endif
-
-        pbdrv_reset_power_off();
     }
 }

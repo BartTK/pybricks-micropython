@@ -10,7 +10,10 @@
 #include "py/objtuple.h"
 #include "py/runtime.h"
 
+#include <pbdrv/bluetooth.h>
 #include <pbio/version.h>
+#include <pbsys/bluetooth.h>
+#include <pbsys/status.h>
 
 #include <pybricks/common.h>
 #include <pybricks/hubs.h>
@@ -21,11 +24,11 @@
 
 #include "genhdr/mpversion.h"
 
-STATIC const MP_DEFINE_STR_OBJ(pybricks_info_hub_obj, PYBRICKS_HUB_NAME);
-STATIC const MP_DEFINE_STR_OBJ(pybricks_info_release_obj, PBIO_VERSION_STR);
-STATIC const MP_DEFINE_STR_OBJ(pybricks_info_version_obj, MICROPY_GIT_TAG " on " MICROPY_BUILD_DATE);
+static const MP_DEFINE_STR_OBJ(pybricks_info_hub_obj, PYBRICKS_HUB_NAME);
+static const MP_DEFINE_STR_OBJ(pybricks_info_release_obj, PBIO_VERSION_STR);
+static const MP_DEFINE_STR_OBJ(pybricks_info_version_obj, MICROPY_GIT_TAG " on " MICROPY_BUILD_DATE);
 
-STATIC const mp_rom_obj_tuple_t pybricks_info_obj = {
+static const mp_rom_obj_tuple_t pybricks_info_obj = {
     {&mp_type_tuple},
     3,
     {
@@ -36,7 +39,7 @@ STATIC const mp_rom_obj_tuple_t pybricks_info_obj = {
 };
 
 #if MICROPY_MODULE_ATTR_DELEGATION
-STATIC void pb_package_pybricks_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
+static void pb_package_pybricks_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
     // This will get called when external imports tries to store the module
     // as an attribute to this package. This is not currently supported, but
     // it should not cause an exception, so indicate success.
@@ -44,14 +47,14 @@ STATIC void pb_package_pybricks_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest
 }
 #endif
 
-STATIC const mp_rom_map_elem_t pybricks_globals_table[] = {
+static const mp_rom_map_elem_t pybricks_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__),            MP_ROM_QSTR(MP_QSTR_pybricks) },
     { MP_ROM_QSTR(MP_QSTR_version),             MP_ROM_PTR(&pybricks_info_obj)},
     #if MICROPY_MODULE_ATTR_DELEGATION
     MP_MODULE_ATTR_DELEGATION_ENTRY(&pb_package_pybricks_attr),
     #endif
 };
-STATIC MP_DEFINE_CONST_DICT(pb_package_pybricks_globals, pybricks_globals_table);
+static MP_DEFINE_CONST_DICT(pb_package_pybricks_globals, pybricks_globals_table);
 
 const mp_obj_module_t pb_package_pybricks = {
     .base = { &mp_type_module },
@@ -104,8 +107,12 @@ void pb_package_pybricks_init(bool import_all) {
     nlr_buf_t nlr;
     if (nlr_push(&nlr) == 0) {
         // Initialize the package.
+        #if PYBRICKS_PY_PARAMETERS
         pb_type_Color_reset();
+        #endif
+        #if PYBRICKS_PY_TOOLS
         pb_module_tools_init();
+        #endif
         // Import all if requested.
         if (import_all) {
             pb_package_import_all();
@@ -129,10 +136,26 @@ void pb_package_pybricks_init(bool import_all) {
 // REVISIT: move these to object finalizers if we enable finalizers in the GC
 void pb_package_pybricks_deinit(void) {
     #if PYBRICKS_PY_COMMON_BLE
-    pb_type_BLE_cleanup();
+    pb_type_ble_start_cleanup();
     #endif
-    // Disconnect from remote.
-    #if PYBRICKS_PY_PUPDEVICES
-    pb_type_Remote_cleanup();
-    #endif // PYBRICKS_PY_PUPDEVICES
+
+    #if PYBRICKS_PY_PUPDEVICES_REMOTE
+    // Disconnect from remote or LWP3 device.
+    pb_type_lwp3device_start_cleanup();
+    #endif // PYBRICKS_PY_PUPDEVICES_REMOTE
+
+    #if PYBRICKS_PY_COMMON_BLE || PYBRICKS_PY_PUPDEVICES_REMOTE
+    // By queueing and awaiting a task that does nothing, we know that all user
+    // tasks and deinit tasks queued before it have completed.
+    static pbio_task_t noop_task;
+    pbdrv_bluetooth_queue_noop(&noop_task);
+    while (noop_task.status == PBIO_ERROR_AGAIN || !pbsys_bluetooth_tx_is_idle()) {
+        MICROPY_VM_HOOK_LOOP
+
+        // Stop waiting (and potentially blocking) in case of forced shutdown.
+        if (pbsys_status_test(PBIO_PYBRICKS_STATUS_SHUTDOWN_REQUEST)) {
+            break;
+        }
+    }
+    #endif // PYBRICKS_PY_COMMON_BLE || PYBRICKS_PY_PUPDEVICES_REMOTE
 }

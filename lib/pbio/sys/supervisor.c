@@ -11,6 +11,8 @@
 #include <pbdrv/watchdog.h>
 #include <pbsys/status.h>
 
+#include <pbdrv/bluetooth.h>
+
 /**
  * Polls the system supervisor.
  *
@@ -20,10 +22,15 @@ void pbsys_supervisor_poll(void) {
     // keep the hub from resetting itself
     pbdrv_watchdog_update();
 
-    // Shut down on low voltage so we don't damage rechargeable batteries
-    // or if there is no BLE connection made within 3 minutes
-    if (pbsys_status_test_debounce(PBIO_PYBRICKS_STATUS_BATTERY_LOW_VOLTAGE_SHUTDOWN, true, 3000)
-        || pbsys_status_test_debounce(PBIO_PYBRICKS_STATUS_BLE_ADVERTISING, true, 3 * 60000)) {
+    // Shut down on low voltage so we don't damage rechargeable batteries.
+    bool low_battery_shutdown = pbsys_status_test_debounce(PBIO_PYBRICKS_STATUS_BATTERY_LOW_VOLTAGE_SHUTDOWN, true, 3000);
+
+    // If not connected to a host, shut down after several minutes of not
+    // running any program.
+    bool idle_shutdown = !pbdrv_bluetooth_is_connected(PBDRV_BLUETOOTH_CONNECTION_LE) &&
+        pbsys_status_test_debounce(PBIO_PYBRICKS_STATUS_USER_PROGRAM_RUNNING, false, 3 * 60000);
+
+    if (low_battery_shutdown || idle_shutdown) {
         pbsys_status_set(PBIO_PYBRICKS_STATUS_SHUTDOWN_REQUEST);
     }
 }

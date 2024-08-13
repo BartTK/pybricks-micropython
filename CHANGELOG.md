@@ -2,6 +2,173 @@
 
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Allow Bluetooth to be toggled off and on with the Bluetooth button on the
+  Prime Hub and the Inventor Hub ([support#1615]), and have this state persist
+  between reboots.
+- Added `heading_correction` to `hub.imu.settings` to allow for automatic
+  correction of the `hub.imu.heading()` value ([support#1678]).
+- Added `update_heading_correction` to interactively set the heading
+  correction value ([support#1678]).
+
+### Changed
+
+- When upgrading the firmware to a new version, the user program will now
+  be erased. This avoids issues with incompatible program files ([support#1622]).
+- The `angular_velocity_threshold`, and `acceleration_threshold` settings
+  in `hub.imu.settings` are now persistent between reboots.
+- Reduced hub poweroff time from 3 to 2 second to make it easier to turn off
+  the hub ([pybricks-micropython#250]).
+- Improved font for the digits ``0--9`` when displaying them
+  with `hub.display.char(str(x))` ([pybricks-micropython#253]).
+
+### Fixed
+- Fixed not able to connect to new Technic Move hub with `LWP3Device()`.
+
+[pybricks-micropython#250]: https://github.com/pybricks/pybricks-micropython/pull/250
+[pybricks-micropython#253]: https://github.com/pybricks/pybricks-micropython/pull/253
+[support#1615]: https://github.com/pybricks/support/issues/1615
+[support#1622]: https://github.com/pybricks/support/issues/1622
+[support#1678]: https://github.com/pybricks/support/issues/1678
+
+## [3.5.0] - 2024-04-11
+
+### Changed
+- Bump version from release candidate to 3.5.0 without additional changes.
+
+## [3.5.0b2] - 2024-04-05
+
+### Added
+- Added optional keyword arguments to `pybricks.tools.read_input_byte()` for
+  automatic conversion via `chr` and to skip to the last byte ([support#1574]).
+- Added `disconnect` method to `pybricks.pupdevices.Remote` and
+  `pybricks.iodevices.LWP3Device` ([support#802]).
+
+### Changed
+- Raise a descriptive error when the `Car` class can't find a steering mechanism
+  end stop within 10 seconds ([support#1564]).
+- Extended region of readable data with `hub.system.storage` to include
+  user program ([pybricks-micropython#243]).
+
+### Fixed
+- Fixed hubs not shutting down when holding hub button ([support#1419]).
+
+[pybricks-micropython#243]: https://github.com/pybricks/pybricks-micropython/pull/243
+[support#802]: https://github.com/pybricks/support/issues/802
+[support#1419]: https://github.com/pybricks/support/issues/1419
+[support#1564]: https://github.com/pybricks/support/issues/1564
+[support#1574]: https://github.com/pybricks/support/issues/1574
+
+## [3.5.0b1] - 2024-03-21
+
+### Added
+- Added support for rumble in `XboxController` ([support#1024]).
+- Added `Button.UP`, `Button.DOWN`, `Button.LEFT`, and `Button.RIGHT` to
+  `XboxController` buttons method ([support#1537]). The separate directional
+  pad method remains available.
+
+### Changed
+- Allow single floating point value for brightness array ([support#1547]).
+
+[support#1024]: https://github.com/pybricks/support/issues/1024
+[support#1537]: https://github.com/orgs/pybricks/discussions/1537
+[support#1547]: https://github.com/pybricks/support/issues/1547
+
+## [3.4.0] - 2024-03-11
+
+### Changed
+- Additional error checking in `pybricks.robotics.Car` setup ([support#1502]).
+
+[support#1502]: https://github.com/pybricks/support/issues/1502
+
+## [3.4.0b3] - 2024-03-05
+
+### Added
+- Added `joystick_deadzone` keyword argument to suppress controller drift in
+  the `XboxController` ([support#1473]).
+- Added `pybricks.tools.running` to return if a stopwatch is currently running
+  ([support#1490]).
+
+### Changed
+- Use `Button` parameter for `XboxController` ([support#1488]), not strings.
+- If `pybricks.tools.run_task` is called without arguments, it will return
+  whether the runloop is running or not ([support#1499]).
+- On Move Hub, the verbosity of error messages is further reduced to reduce
+  the firmware size, to allow for bug fixes/updates ([pybricks-micropython#240]).
+- Re-implemented `pybricks.robotics.Car` in C so it can be enabled on Move Hub
+  which does not support frozen modules ([support#1502]).
+
+### Fixes
+- Fix `pybricks.iodevices` not allowing writing -128 value ([support#1366]) and
+  raise informative error messages instead of clamping the input.
+
+[pybricks-micropython#240]: https://github.com/pybricks/pybricks-micropython/pull/240
+[support#1366]: https://github.com/pybricks/support/issues/1366
+[support#1453]: https://github.com/pybricks/support/issues/1453
+[support#1473]: https://github.com/pybricks/support/issues/1473
+[support#1488]: https://github.com/pybricks/support/issues/1488
+[support#1490]: https://github.com/pybricks/support/issues/1490
+[support#1499]: https://github.com/pybricks/support/issues/1499
+[support#1502]: https://github.com/pybricks/support/issues/1502
+
+## [3.4.0b2] - 2024-02-10
+
+### Added
+- Added `pybricks.iodevices.XboxController` ([support#191], [support#1024]).
+- Re-enable `pybricks.iodevices.LWP3Device` missing from last beta.
+
+### Fixes
+- Fix hub not shutting down while a program runs ([support#1438]).
+
+### Changed
+- On Technic Hub and City Hub, the Bluetooth chip is now configured to reject
+  connection parameter updates from peripherals. This avoids interference with
+  broadcast when used with the Xbox controller.
+
+[support#191]: https://github.com/pybricks/support/issues/191
+[support#1024]: https://github.com/pybricks/support/issues/1024
+[support#1438]: https://github.com/pybricks/support/issues/1438
+
+## [3.4.0b1] - 2024-01-30
+
+### Added
+- Added `pybricks.robotics.Car` for controlling a car with one or more drive
+  motors and a steering motor. This is a convenience class that combines
+  several motors to provide the functionality used in most Technic cars.
+
+### Fixes
+- Fix observing stopping on City and Technic hubs after some time ([support#1096]).
+- Fix Bluetooth locking up when connecting Bluetooth adapter with small MTU to Technic and City hubs ([support#947]).
+- Fix Technic Hub not always starting automatically after firmware exiting
+  update mode ([support#1408]). Also apply this to Move Hub and City Hub.
+- Fix Bluetooth locking up when connecting Bluetooth adapter with small MTU to
+  Technic and City hubs ([support#947]).
+- Fix Remote pairing difficulty ([support#880]).
+- Fix Remote light not working or crashing the hub ([support#1357]).
+- Fix Technic Hub and City Hub broadcasting missing messages ([support#1357]).
+- Fix Technic Hub and City Hub broadcasting delays.
+
+### Changed
+- Changed polarity of output in the `Light` class. This makes no difference for
+  the Light class, but it makes the class usable for certain custom
+  devices ([pybricks-micropython#166]).
+- Improved Bluetooth peripheral scanning and connect process to allow for new
+  device types to be added in the future.
+
+### Changed
+- Changed keypad return type to set instead of tuple. This affects the remote
+  and hubs.
+
+[support#880]: https://github.com/pybricks/support/issues/880
+[support#947]: https://github.com/pybricks/support/issues/947
+[support#1096]: https://github.com/pybricks/support/issues/1096
+[support#1357]: https://github.com/pybricks/support/issues/1357
+[support#1408]: https://github.com/pybricks/support/issues/1408
+[pybricks-micropython#222]: https://github.com/pybricks/pybricks-micropython/pull/222
+
 ## [3.3.0] - 2023-11-24
 
 ### Changed
@@ -734,7 +901,14 @@ Prerelease changes are documented at [support#48].
 
 
 <!-- diff links for headers -->
-[Unreleased]: https://github.com/pybricks/pybricks-micropython/compare/v3.3.0...HEAD
+[Unreleased]: https://github.com/pybricks/pybricks-micropython/compare/v3.5.0...HEAD
+[3.5.0]: https://github.com/pybricks/pybricks-micropython/compare/v3.5.0b2...v3.5.0
+[3.5.0b2]: https://github.com/pybricks/pybricks-micropython/compare/v3.5.0b1...v3.5.0b2
+[3.5.0b1]: https://github.com/pybricks/pybricks-micropython/compare/v3.4.0...v3.5.0b1
+[3.4.0]: https://github.com/pybricks/pybricks-micropython/compare/v3.4.0b3...v3.4.0
+[3.4.0b3]: https://github.com/pybricks/pybricks-micropython/compare/v3.4.0b2...v3.4.0b3
+[3.4.0b2]: https://github.com/pybricks/pybricks-micropython/compare/v3.4.0b1...v3.4.0b2
+[3.4.0b1]: https://github.com/pybricks/pybricks-micropython/compare/v3.3.0...v3.4.0b1
 [3.3.0]: https://github.com/pybricks/pybricks-micropython/compare/v3.3.0c1...v3.3.0
 [3.3.0c1]: https://github.com/pybricks/pybricks-micropython/compare/v3.3.0b9...v3.3.0c1
 [3.3.0b9]: https://github.com/pybricks/pybricks-micropython/compare/v3.3.0b8...v3.3.0b9

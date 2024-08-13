@@ -69,6 +69,7 @@
 #define PBDRV_CONFIG_IOPORT_PUP                     (1)
 #define PBDRV_CONFIG_IOPORT_NUM_DEV                 (2)
 #define PBDRV_CONFIG_IOPORT_PUP_QUIRK_POWER_CYCLE   (0)
+#define PBDRV_CONFIG_IOPORT_DEBUG_UART              (0)
 
 #define PBDRV_CONFIG_LED                            (1)
 #define PBDRV_CONFIG_LED_NUM_DEV                    (2)
@@ -78,9 +79,9 @@
 #define PBDRV_CONFIG_LEGODEV                        (1)
 #define PBDRV_CONFIG_LEGODEV_PUP                    (1)
 #define PBDRV_CONFIG_LEGODEV_PUP_NUM_INT_DEV        (0)
-#define PBDRV_CONFIG_LEGODEV_PUP_NUM_EXT_DEV        (2)
+#define PBDRV_CONFIG_LEGODEV_PUP_NUM_EXT_DEV        (2 - PBDRV_CONFIG_IOPORT_DEBUG_UART)
 #define PBDRV_CONFIG_LEGODEV_PUP_UART               (1)
-#define PBDRV_CONFIG_LEGODEV_MODE_INFO       (1)
+#define PBDRV_CONFIG_LEGODEV_MODE_INFO              (1)
 #define PBDRV_CONFIG_LEGODEV_PUP_UART_NUM_DEV       (PBDRV_CONFIG_LEGODEV_PUP_NUM_EXT_DEV)
 
 #define PBDRV_CONFIG_MOTOR_DRIVER                   (1)
@@ -104,6 +105,10 @@
 #define PBDRV_CONFIG_UART_STM32F4_LL_IRQ_NUM_UART   (2)
 
 #define PBDRV_CONFIG_USB                            (1)
+#define PBDRV_CONFIG_USB_VID                        LEGO_USB_VID
+#define PBDRV_CONFIG_USB_PID                        LEGO_USB_PID_SPIKE_ESSENTIAL
+#define PBDRV_CONFIG_USB_MFG_STR                    LEGO_USB_MFG_STR
+#define PBDRV_CONFIG_USB_PROD_STR                   LEGO_USB_PROD_STR_TECHNIC_SMALL_HUB " + Pybricks"
 #define PBDRV_CONFIG_USB_STM32F4                    (1)
 
 #define PBDRV_CONFIG_WATCHDOG                       (1)

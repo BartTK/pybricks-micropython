@@ -62,6 +62,7 @@ PYBRICKS_PYBRICKS_SRC_C = $(addprefix pybricks/,\
 	iodevices/pb_type_iodevices_lwp3device.c \
 	iodevices/pb_type_iodevices_pupdevice.c \
 	iodevices/pb_type_iodevices_uartdevice.c \
+	iodevices/pb_type_iodevices_xbox_controller.c \
 	media/pb_module_media.c \
 	nxtdevices/pb_module_nxtdevices.c \
 	nxtdevices/pb_type_nxtdevices_colorsensor.c \
@@ -88,11 +89,11 @@ PYBRICKS_PYBRICKS_SRC_C = $(addprefix pybricks/,\
 	pupdevices/pb_type_pupdevices_infraredsensor.c \
 	pupdevices/pb_type_pupdevices_light.c \
 	pupdevices/pb_type_pupdevices_pfmotor.c \
-	pupdevices/pb_type_pupdevices_remote.c \
 	pupdevices/pb_type_pupdevices_tiltsensor.c \
 	pupdevices/pb_type_pupdevices_ultrasonicsensor.c \
 	pybricks.c \
 	robotics/pb_module_robotics.c \
+	robotics/pb_type_car.c \
 	robotics/pb_type_drivebase.c \
 	robotics/pb_type_spikebase.c \
 	tools/pb_module_tools.c \
@@ -119,6 +120,7 @@ PBIO_SRC_C = $(addprefix lib/pbio/,\
 	drv/battery/battery_test.c \
 	drv/battery/battery_virtual.c \
 	drv/block_device/block_device_flash_stm32.c \
+	drv/block_device/block_device_test.c \
 	drv/block_device/block_device_w25qxx_stm32.c \
 	drv/bluetooth/bluetooth_btstack_control_gpio.c \
 	drv/bluetooth/bluetooth_btstack_run_loop_contiki.c \
@@ -137,9 +139,11 @@ PBIO_SRC_C = $(addprefix lib/pbio/,\
 	drv/charger/charger_mp2639a.c \
 	drv/clock/clock_ev3rt.c \
 	drv/clock/clock_linux.c \
+	drv/clock/clock_none.c \
 	drv/clock/clock_nxt.c \
 	drv/clock/clock_stm32.c \
 	drv/clock/clock_test.c \
+	drv/clock/clock_tiam1808.c \
 	drv/clock/clock_virtual.c \
 	drv/core.c \
 	drv/counter/counter_ev3dev_stretch_iio.c \
@@ -150,6 +154,7 @@ PBIO_SRC_C = $(addprefix lib/pbio/,\
 	drv/gpio/gpio_stm32l4.c \
 	drv/imu/imu_lsm6ds3tr_c_stm32.c \
 	drv/ioport/ioport_pup.c \
+	drv/ioport/ioport_debug_uart.c \
 	drv/led/led_array_pwm.c \
 	drv/led/led_array.c \
 	drv/led/led_core.c \
@@ -210,7 +215,6 @@ PBIO_SRC_C = $(addprefix lib/pbio/,\
 	src/motor/servo_settings.c \
 	src/observer.c \
 	src/parent.c \
-	src/protocol/lwp3.c \
 	src/protocol/nus.c \
 	src/protocol/pybricks.c \
 	src/servo.c \
@@ -227,10 +231,12 @@ PBIO_SRC_C = $(addprefix lib/pbio/,\
 	sys/light_matrix.c \
 	sys/light.c \
 	sys/main.c \
-	sys/program_load.c \
 	sys/program_stop.c \
 	sys/status.c \
+	sys/storage.c \
+	sys/storage_settings.c \
 	sys/supervisor.c \
+	sys/user_program.c \
 	)
 
 # MicroPython math library

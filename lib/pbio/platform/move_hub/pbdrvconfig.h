@@ -44,6 +44,7 @@
 #define PBDRV_CONFIG_IOPORT_PUP                     (1)
 #define PBDRV_CONFIG_IOPORT_NUM_DEV                 (2)
 #define PBDRV_CONFIG_IOPORT_PUP_QUIRK_POWER_CYCLE   (0)
+#define PBDRV_CONFIG_IOPORT_DEBUG_UART              (0) // Doesn't work.
 
 #define PBDRV_CONFIG_LED                            (1)
 #define PBDRV_CONFIG_LED_NUM_DEV                    (1)
@@ -53,7 +54,7 @@
 #define PBDRV_CONFIG_LEGODEV                        (1)
 #define PBDRV_CONFIG_LEGODEV_PUP                    (1)
 #define PBDRV_CONFIG_LEGODEV_PUP_NUM_INT_DEV        (2)
-#define PBDRV_CONFIG_LEGODEV_PUP_NUM_EXT_DEV        (2)
+#define PBDRV_CONFIG_LEGODEV_PUP_NUM_EXT_DEV        (2 - PBDRV_CONFIG_IOPORT_DEBUG_UART)
 #define PBDRV_CONFIG_LEGODEV_PUP_UART               (1)
 #define PBDRV_CONFIG_LEGODEV_MODE_INFO       (0) // Reduces build size by disabling some unused features of the protocol.
 #define PBDRV_CONFIG_LEGODEV_PUP_UART_NUM_DEV       (PBDRV_CONFIG_LEGODEV_PUP_NUM_EXT_DEV)
@@ -88,3 +89,4 @@
 #define PBDRV_CONFIG_LAST_MOTOR_PORT        PBIO_PORT_ID_D
 
 #define PBDRV_CONFIG_SYS_CLOCK_RATE 48000000
+#define PBDRV_CONFIG_INIT_ENABLE_INTERRUPTS_ARM     (1)

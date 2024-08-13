@@ -11,6 +11,9 @@
 
 #include <pbdrv/bluetooth.h>
 
+#include <pbsys/config.h>
+#include <pbsys/storage_settings.h>
+
 #include "py/obj.h"
 #include "py/misc.h"
 #include "py/mphal.h"
@@ -45,10 +48,12 @@ typedef struct {
 static observed_data_t *observed_data;
 static uint8_t num_observed_data;
 
+static pbio_task_t broadcast_task;
+
 typedef struct {
     mp_obj_base_t base;
     uint8_t broadcast_channel;
-    pbio_task_t broadcast_task;
+    pbio_task_t *broadcast_task;
     observed_data_t observed_data[];
 } pb_obj_BLE_t;
 
@@ -85,7 +90,7 @@ typedef enum {
  * @returns                 A pointer to the channel or @c NULL if the channel
  *                          is not allocated in the table.
  */
-STATIC observed_data_t *lookup_observed_data(uint8_t channel) {
+static observed_data_t *lookup_observed_data(uint8_t channel) {
     for (size_t i = 0; i < num_observed_data; i++) {
         observed_data_t *data = &observed_data[i];
 
@@ -108,7 +113,7 @@ STATIC observed_data_t *lookup_observed_data(uint8_t channel) {
  * @param [in]  length          The length of @p data in bytes.
  * @param [in]  rssi            The RSSI of the event in dBm.
  */
-STATIC void handle_observe_event(pbdrv_bluetooth_ad_type_t event_type, const uint8_t *data, uint8_t length, int8_t rssi) {
+static void handle_observe_event(pbdrv_bluetooth_ad_type_t event_type, const uint8_t *data, uint8_t length, int8_t rssi) {
     // NB: ideally we would also be checking `event_type == PBDRV_BLUETOOTH_AD_TYPE_ADV_NONCONN_IND`
     // here but due to a Bluetooth firmware bug on city hub, we have to allow other
     // advertisement types. This would filter out broadcasts from the experimental
@@ -150,7 +155,7 @@ STATIC void handle_observe_event(pbdrv_bluetooth_ad_type_t event_type, const uin
  * @returns             The next free index in @p dst after adding the new data.
  * @throws ValueError   If data exceeds available space remaining in @p dst.
  */
-STATIC size_t pb_module_ble_append(uint8_t *dst, size_t index, const void *src, size_t size, pb_ble_broadcast_data_type_t type) {
+static size_t pb_module_ble_append(uint8_t *dst, size_t index, const void *src, size_t size, pb_ble_broadcast_data_type_t type) {
     size_t next_index = index + size + 1;
 
     if (next_index > OBSERVED_DATA_MAX_SIZE) {
@@ -177,7 +182,7 @@ STATIC size_t pb_module_ble_append(uint8_t *dst, size_t index, const void *src, 
  * @throws ValueError   If data exceeds available space remaining in @p dst.
  * @throws TypeError    If @p arg is not one of the supported types.
  */
-STATIC size_t pb_module_ble_encode(void *dst, size_t index, mp_obj_t arg) {
+static size_t pb_module_ble_encode(void *dst, size_t index, mp_obj_t arg) {
 
     if (arg == mp_const_true) {
         return pb_module_ble_append(dst, index, NULL, 0, PB_BLE_BROADCAST_DATA_TYPE_TRUE);
@@ -250,7 +255,7 @@ STATIC size_t pb_module_ble_encode(void *dst, size_t index, mp_obj_t arg) {
  *                       exceed the available space.
  * @throws TypeError     If any of the arguments are of a type that can't be encoded.
  */
-STATIC mp_obj_t pb_module_ble_broadcast(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+static mp_obj_t pb_module_ble_broadcast(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
         pb_obj_BLE_t, self,
         PB_ARG_REQUIRED(data));
@@ -258,9 +263,23 @@ STATIC mp_obj_t pb_module_ble_broadcast(size_t n_args, const mp_obj_t *pos_args,
     // move hub is connected to Pybricks Code. Also, broadcasting interferes
     // with observing even when not connected to Pybricks Code.
 
-    // TODO: Stop broadcasting if data is None.
+    // FIXME: This check is (and should only be) done in the BLE constructor,
+    // but it may still pass there since 0 is a valid broadcast channel. That
+    // should be fixed by defaulting to None if no broadcast channel is provided.
+    #if PBSYS_CONFIG_BLUETOOTH_TOGGLE
+    if (!pbsys_storage_settings_bluetooth_enabled()) {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("Bluetooth not enabled"));
+    }
+    #endif // PBSYS_CONFIG_BLUETOOTH_TOGGLE
 
-    struct {
+    // Stop broadcasting if data is None.
+    if (data_in == mp_const_none) {
+        static pbio_task_t stop_broadcasting_task;
+        pbdrv_bluetooth_stop_broadcasting(&stop_broadcasting_task);
+        return pb_module_tools_pbio_task_wait_or_await(&stop_broadcasting_task);
+    }
+
+    static struct {
         pbdrv_bluetooth_value_t v;
         uint8_t d[5 + OBSERVED_DATA_MAX_SIZE];
     } value;
@@ -269,7 +288,7 @@ STATIC mp_obj_t pb_module_ble_broadcast(size_t n_args, const mp_obj_t *pos_args,
     mp_obj_t *objs;
     size_t n_objs;
     size_t index;
-    if (mp_obj_is_type(data_in, &mp_type_tuple) || mp_obj_is_type(data_in, &mp_type_list)) {
+    if (pb_obj_is_array(data_in)) {
         index = 0;
         mp_obj_get_array(data_in, &n_objs, &objs);
     } else {
@@ -292,10 +311,10 @@ STATIC mp_obj_t pb_module_ble_broadcast(size_t n_args, const mp_obj_t *pos_args,
     pbio_set_uint16_le(&value.v.data[2], LEGO_CID);
     value.v.data[4] = self->broadcast_channel;
 
-    pbdrv_bluetooth_start_broadcasting(&self->broadcast_task, &value.v);
-    return pb_module_tools_pbio_task_wait_or_await(&self->broadcast_task);
+    pbdrv_bluetooth_start_broadcasting(self->broadcast_task, &value.v);
+    return pb_module_tools_pbio_task_wait_or_await(self->broadcast_task);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_KW(pb_module_ble_broadcast_obj, 1, pb_module_ble_broadcast);
+static MP_DEFINE_CONST_FUN_OBJ_KW(pb_module_ble_broadcast_obj, 1, pb_module_ble_broadcast);
 
 /**
  * Decodes data that was received by the Bluetooth radio.
@@ -306,7 +325,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_KW(pb_module_ble_broadcast_obj, 1, pb_module_ble_
  * @returns                 The decoded value as a Python object.
  * @throws RuntimeError     If the data was invalid and could not be decoded.
  */
-STATIC mp_obj_t pb_module_ble_decode(const observed_data_t *data, size_t *index) {
+static mp_obj_t pb_module_ble_decode(const observed_data_t *data, size_t *index) {
     uint8_t size = data->data[*index] & 0x1F;
     pb_ble_broadcast_data_type_t data_type = data->data[*index] >> 5;
 
@@ -386,7 +405,7 @@ STATIC mp_obj_t pb_module_ble_decode(const observed_data_t *data, size_t *index)
  * @throws ValueError       If the channel is out of range.
  * @throws RuntimeError     If the last received data was invalid.
  */
-STATIC const observed_data_t *pb_module_ble_get_channel_data(mp_obj_t channel_in) {
+static const observed_data_t *pb_module_ble_get_channel_data(mp_obj_t channel_in) {
     mp_int_t channel = mp_obj_get_int(channel_in);
 
     observed_data_t *ch_data = lookup_observed_data(channel);
@@ -415,7 +434,7 @@ STATIC const observed_data_t *pb_module_ble_get_channel_data(mp_obj_t channel_in
  * @throws ValueError       If the channel is out of range.
  * @throws RuntimeError     If the last received data was invalid.
  */
-STATIC mp_obj_t pb_module_ble_observe(mp_obj_t self_in, mp_obj_t channel_in) {
+static mp_obj_t pb_module_ble_observe(mp_obj_t self_in, mp_obj_t channel_in) {
 
     // BEWARE OF DRAGONS: The data returned by pb_module_ble_get_channel_data()
     // is only valid until the next PBIO event is processed, which can happen
@@ -426,22 +445,6 @@ STATIC mp_obj_t pb_module_ble_observe(mp_obj_t self_in, mp_obj_t channel_in) {
 
     // Have not received data yet or timed out.
     if (ch_data.rssi == INT8_MIN) {
-
-        // HACK: Work around observing eventually stopping on the CC2640 due to
-        // full buffer of discovered devices. Needs to be fixed at the driver
-        // level with a scan process that restarts automatically.
-        // See https://github.com/pybricks/support/issues/1096
-        #if PBDRV_CONFIG_BLUETOOTH_STM32_CC2640
-        static uint32_t time_restart = 0;
-        uint32_t time_now = mp_hal_ticks_ms();
-        if (time_now - time_restart > OBSERVED_DATA_TIMEOUT_MS) {
-            pbio_task_t task;
-            pbdrv_bluetooth_start_observing(&task, handle_observe_event);
-            pb_module_tools_pbio_task_do_blocking(&task, -1);
-            time_restart = time_now;
-        }
-        #endif
-
         return mp_const_none;
     }
 
@@ -467,7 +470,7 @@ STATIC mp_obj_t pb_module_ble_observe(mp_obj_t self_in, mp_obj_t channel_in) {
 
     return mp_obj_new_tuple(i, items);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_2(pb_module_ble_observe_obj, pb_module_ble_observe);
+static MP_DEFINE_CONST_FUN_OBJ_2(pb_module_ble_observe_obj, pb_module_ble_observe);
 
 /**
  * Retrieves the filtered RSSI signal strength of the given channel.
@@ -477,11 +480,11 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_2(pb_module_ble_observe_obj, pb_module_ble_observ
  * @returns                 Python object containing the filtered RSSI.
  * @throws ValueError       If the channel is out of range.
  */
-STATIC mp_obj_t pb_module_ble_signal_strength(mp_obj_t self_in, mp_obj_t channel_in) {
+static mp_obj_t pb_module_ble_signal_strength(mp_obj_t self_in, mp_obj_t channel_in) {
     const observed_data_t *ch_data = pb_module_ble_get_channel_data(channel_in);
     return mp_obj_new_int(ch_data->rssi);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_2(pb_module_ble_signal_strength_obj, pb_module_ble_signal_strength);
+static MP_DEFINE_CONST_FUN_OBJ_2(pb_module_ble_signal_strength_obj, pb_module_ble_signal_strength);
 
 /**
  * Gets the Bluetooth chip frimware version.
@@ -489,21 +492,21 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_2(pb_module_ble_signal_strength_obj, pb_module_bl
  * @returns                 MicroPython object containing the firmware version
  *                          as a str.
  */
-STATIC mp_obj_t pb_module_ble_version(mp_obj_t self_in) {
+static mp_obj_t pb_module_ble_version(mp_obj_t self_in) {
     const char *version = pbdrv_bluetooth_get_fw_version();
     return mp_obj_new_str(version, strlen(version));
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(pb_module_ble_version_obj, pb_module_ble_version);
+static MP_DEFINE_CONST_FUN_OBJ_1(pb_module_ble_version_obj, pb_module_ble_version);
 
-STATIC const mp_rom_map_elem_t common_BLE_locals_dict_table[] = {
+static const mp_rom_map_elem_t common_BLE_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_broadcast), MP_ROM_PTR(&pb_module_ble_broadcast_obj) },
     { MP_ROM_QSTR(MP_QSTR_observe), MP_ROM_PTR(&pb_module_ble_observe_obj) },
     { MP_ROM_QSTR(MP_QSTR_signal_strength), MP_ROM_PTR(&pb_module_ble_signal_strength_obj) },
     { MP_ROM_QSTR(MP_QSTR_version), MP_ROM_PTR(&pb_module_ble_version_obj) },
 };
-STATIC MP_DEFINE_CONST_DICT(common_BLE_locals_dict, common_BLE_locals_dict_table);
+static MP_DEFINE_CONST_DICT(common_BLE_locals_dict, common_BLE_locals_dict_table);
 
-STATIC MP_DEFINE_CONST_OBJ_TYPE(pb_type_BLE,
+static MP_DEFINE_CONST_OBJ_TYPE(pb_type_BLE,
     MP_QSTR_BLE,
     MP_TYPE_FLAG_NONE,
     locals_dict, &common_BLE_locals_dict);
@@ -511,7 +514,7 @@ STATIC MP_DEFINE_CONST_OBJ_TYPE(pb_type_BLE,
 /**
  * Creates a new instance of the BLE class.
  *
- * Do not call this function more than once unless pb_type_BLE_cleanup() is called first.
+ * Do not call this function more than once unless pb_type_ble_start_cleanup() is called first.
  *
  * @param [in]  broadcast_channel_in    (int) The channel number to use for broadcasting.
  * @param [in]  observe_channels_in     (list[int]) A list of channels numbers to observe.
@@ -519,7 +522,7 @@ STATIC MP_DEFINE_CONST_OBJ_TYPE(pb_type_BLE,
  * @throws ValueError                   If either parameter contains an out of range channel number.
  */
 mp_obj_t pb_type_BLE_new(mp_obj_t broadcast_channel_in, mp_obj_t observe_channels_in) {
-    // making the assumption that this is only called once before each pb_type_BLE_cleanup()
+    // making the assumption that this is only called once before each pb_type_ble_start_cleanup()
     assert(observed_data == NULL);
 
     mp_int_t broadcast_channel = mp_obj_get_int(broadcast_channel_in);
@@ -530,11 +533,18 @@ mp_obj_t pb_type_BLE_new(mp_obj_t broadcast_channel_in, mp_obj_t observe_channel
 
     mp_int_t num_channels = mp_obj_get_int(mp_obj_len(observe_channels_in));
 
+    #if PBSYS_CONFIG_BLUETOOTH_TOGGLE
+    if (!pbsys_storage_settings_bluetooth_enabled() && (num_channels > 0 || broadcast_channel)) {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("Bluetooth not enabled"));
+    }
+    #endif // PBSYS_CONFIG_BLUETOOTH_TOGGLE
+
     if (num_channels < 0 || num_channels > UINT8_MAX) {
         mp_raise_ValueError(MP_ERROR_TEXT("len observe channels must be 0 to 255"));
     }
 
     pb_obj_BLE_t *self = mp_obj_malloc_var(pb_obj_BLE_t, observed_data_t, num_channels, &pb_type_BLE);
+    self->broadcast_task = &broadcast_task;
     self->broadcast_channel = broadcast_channel;
 
     for (mp_int_t i = 0; i < num_channels; i++) {
@@ -566,12 +576,14 @@ mp_obj_t pb_type_BLE_new(mp_obj_t broadcast_channel_in, mp_obj_t observe_channel
     return MP_OBJ_FROM_PTR(self);
 }
 
-void pb_type_BLE_cleanup(void) {
-    pbdrv_bluetooth_stop_broadcasting();
-    pbdrv_bluetooth_stop_observing();
+void pb_type_ble_start_cleanup(void) {
+    static pbio_task_t stop_broadcasting_task;
+    static pbio_task_t stop_observing_task;
+    pbdrv_bluetooth_stop_broadcasting(&stop_broadcasting_task);
+    pbdrv_bluetooth_stop_observing(&stop_observing_task);
     observed_data = NULL;
     num_observed_data = 0;
-    // TODO: wait for stop?
+    // Tasks awaited in pybricks de-init.
 }
 
 #endif // PYBRICKS_PY_COMMON_BLE

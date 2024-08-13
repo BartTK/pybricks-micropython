@@ -49,21 +49,6 @@ subdirectories.
 - Restrictions: Liability, warranty
 
 
-### STM32 USB Device Library
-
-**path**: `lib/STM32_USB_Device_Library/`
-
-**origin**: Git commit 5d01400afd60410f6e049cbd19179a67d44d53fd
-
-**url**: https://github.com/STMicroelectronics/STM32CubeF4
-
-**terms**:
-- License: proprietary
-- Permissions: Commercial use, distribution, modification, private use
-- Conditions: Compiled code can only be executed on STM32 products
-- Restrictions: Liability, trademark use, warranty
-
-
 ### Contiki OS
 
 **path**: `lib/contiki-core/`
@@ -93,20 +78,6 @@ subdirectories.
 - Conditions: License and copyright notice
 - Restrictions: Liability, warranty
 
-
-### BlueKitchen BTStack
-
-**path**: `lib/btstack/`
-
-**origin**: Git commit 039b5ecb8b267d3c4fc6d0521ab55182e00567a9
-
-**url**: https://github.com/bluekitchen/btstack
-
-**terms**:
-- License: BSD-3-Clause + personal use only restriction
-- Permissions: Distribution, modification, private use
-- Conditions: License and copyright notice
-- Restrictions: Commercial use, liability, warranty
 
 ### Lightweight ring buffer manager
 

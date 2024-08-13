@@ -61,6 +61,15 @@ $(error failed)
 endif
 endif
 endif
+ifeq ($(PB_LIB_STM32_USB_DEVICE),1)
+ifeq ("$(wildcard $(PBTOP)/lib/STM32_USB_Device_Library/README.md)","")
+$(info GIT cloning STM32_USB_Device_Library submodule)
+$(info $(shell cd $(PBTOP) && git submodule update --checkout --init lib/STM32_USB_Device_Library))
+ifeq ("$(wildcard $(PBTOP)/lib/STM32_USB_Device_Library/README.md)","")
+$(error failed)
+endif
+endif
+endif
 
 # lets micropython make files work with external files
 USER_C_MODULES = $(PBTOP)
@@ -119,7 +128,6 @@ ifeq ($(PB_LIB_LSM6DS3TR_C),1)
 INC += -I$(PBTOP)/lib/lsm6ds3tr_c_STdC/driver
 endif
 ifeq ($(PB_LIB_STM32_USB_DEVICE),1)
-INC += -I$(PBTOP)/lib/STM32_USB_Device_Library/Class/CDC/Inc/
 INC += -I$(PBTOP)/lib/STM32_USB_Device_Library/Core/Inc/
 endif
 INC += -I$(PBTOP)
@@ -144,7 +152,11 @@ else
 ifeq ($(PB_MCU_FAMILY),AT91SAM7)
 CFLAGS_MCU = -mthumb -mthumb-interwork -mtune=arm7tdmi -mcpu=arm7tdmi -msoft-float
 else
+ifeq ($(PB_MCU_FAMILY),TIAM1808)
+CFLAGS_MCU =
+else
 $(error unsupported PB_MCU_FAMILY)
+endif
 endif
 endif
 
@@ -173,6 +185,8 @@ CFLAGS += -fsingle-precision-constant -Wdouble-promotion
 # Tune for Debugging or Optimization
 ifeq ($(DEBUG), 1)
 CFLAGS += -Og -ggdb
+else ifeq ($(DEBUG), 2)
+CFLAGS += -Os -DNDEBUG -flto
 else
 CFLAGS += -Os -DNDEBUG -flto
 CFLAGS += -fdata-sections -ffunction-sections
@@ -232,6 +246,14 @@ endif
 
 ifeq ($(PB_MCU_FAMILY),AT91SAM7)
 PY_EXTRA_SRC_C += $(addprefix bricks/nxt/,\
+	mphalport.c \
+	)
+
+SRC_S += shared/runtime/gchelper_thumb1.s
+endif
+
+ifeq ($(PB_MCU_FAMILY),TIAM1808)
+PY_EXTRA_SRC_C += $(addprefix bricks/ev3/,\
 	mphalport.c \
 	)
 
@@ -362,7 +384,6 @@ LSM6DS3TR_C_SRC_C = lib/lsm6ds3tr_c_STdC/driver/lsm6ds3tr_c_reg.c
 # STM32 USB Device library
 
 SRC_STM32_USB_DEV = $(addprefix lib/STM32_USB_Device_Library/,\
-	Class/CDC/Src/usbd_cdc.c \
 	Core/Src/usbd_core.c \
 	Core/Src/usbd_ctlreq.c \
 	Core/Src/usbd_ioreq.c \

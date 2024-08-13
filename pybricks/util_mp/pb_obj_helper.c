@@ -124,6 +124,44 @@ mp_int_t pb_obj_get_default_abs_int(mp_obj_t obj, mp_int_t default_val) {
     return value > 0 ? value: -value;
 }
 
+/**
+ * Tests if an object is a tuple or list.
+ *
+ * @param obj_in [in]  A MicroPython object
+ * @return             True if @p obj_in is a tuple or list, otherwise false.
+*/
+bool pb_obj_is_array(mp_obj_t obj_in) {
+    return mp_obj_is_type(obj_in, &mp_type_tuple) || mp_obj_is_type(obj_in, &mp_type_list);
+}
+
+/**
+ * Populates an array of percentages from a single number or tuple.
+ *
+ * @param obj_in [in]  A MicroPython object
+ * @param num    [in]  The number of values to populate
+ * @param values [out] The array to populate
+ *
+ * Raises exception if @p obj_in is not a number or a tuple of @p num values.
+ */
+void pb_obj_get_pct_or_array(mp_obj_t obj_in, size_t num, int8_t *values) {
+    if (pb_obj_is_array(obj_in)) {
+        mp_obj_t *items;
+        size_t len;
+        mp_obj_get_array(obj_in, &len, &items);
+        if (len != num) {
+            mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("expected 1 number or tuple of %d values"), num);
+        }
+        for (size_t i = 0; i < num; i++) {
+            values[i] = pb_obj_get_pct(items[i]);
+        }
+    } else {
+        mp_int_t pct = pb_obj_get_pct(obj_in);
+        for (size_t i = 0; i < num; i++) {
+            values[i] = pct;
+        }
+    }
+}
+
 mp_obj_t pb_obj_get_base_class_obj(mp_obj_t obj, const mp_obj_type_t *type) {
 
     // If it equals the base type then return as is
@@ -141,7 +179,7 @@ mp_obj_t pb_obj_get_base_class_obj(mp_obj_t obj, const mp_obj_type_t *type) {
 
 void pb_assert_type(mp_obj_t obj, const mp_obj_type_t *type) {
     if (!mp_obj_is_type(obj, type)) {
-        #if MICROPY_ERROR_REPORTING == MICROPY_ERROR_REPORTING_TERSE
+        #if PYBRICKS_OPT_TERSE_ERR
         // HACK: for some reason, GCC 10 LTO optimizes out pb_assert_type()
         // in the terse case. By adding an empty inline assembly statement,
         // we prevent the incorrect optimization.
@@ -196,16 +234,13 @@ void pb_attribute_handler(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
     // Write/delete not supported.
 }
 
-
-#if MICROPY_MODULE_FROZEN_MPY
-mp_obj_t pb_frozen_function_import(qstr module_name, qstr function_name) {
+mp_obj_t pb_function_import_helper(qstr module_name, qstr function_name) {
     const mp_obj_t import_args[] = { MP_OBJ_NEW_QSTR(module_name) };
     mp_obj_t module = mp_builtin___import__(MP_ARRAY_SIZE(import_args), import_args);
     mp_obj_t dest[2];
     mp_load_method_maybe(module, function_name, dest);
     if (dest[0] == MP_OBJ_NULL) {
-        mp_raise_msg(&mp_type_ImportError, MP_ERROR_TEXT("text method not found"));
+        mp_raise_msg(&mp_type_ImportError, MP_ERROR_TEXT("not found"));
     }
     return dest[0];
 }
-#endif

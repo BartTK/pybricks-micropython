@@ -21,6 +21,10 @@
 #include <pbsys/bluetooth.h>
 #include <pbsys/command.h>
 #include <pbsys/status.h>
+#include <pbsys/storage.h>
+
+#include "light.h"
+#include "storage.h"
 
 // REVISIT: this can be the negotiated MTU - 3 to allow for better throughput
 #define MAX_CHAR_SIZE 20
@@ -43,6 +47,10 @@ static bool send_busy;
 
 PROCESS(pbsys_bluetooth_process, "Bluetooth");
 
+void pbsys_bluetooth_process_poll(void) {
+    process_poll(&pbsys_bluetooth_process);
+}
+
 // Internal API
 
 /** Initializes Bluetooth. */
@@ -55,6 +63,7 @@ void pbsys_bluetooth_init(void) {
 
     lwrb_init(&stdout_ring_buf, stdout_buf, PBIO_ARRAY_SIZE(stdout_buf));
     lwrb_init(&stdin_ring_buf, stdin_buf, PBIO_ARRAY_SIZE(stdin_buf));
+
     process_start(&pbsys_bluetooth_process);
 }
 
@@ -175,7 +184,7 @@ pbio_error_t pbsys_bluetooth_tx(const uint8_t *data, uint32_t *size) {
 
     // poke the process to start tx soon-ish. This way, we can accumulate up to
     // MAX_CHAR_SIZE bytes before actually transmitting
-    process_poll(&pbsys_bluetooth_process);
+    pbsys_bluetooth_process_poll();
 
     return PBIO_SUCCESS;
 }
@@ -196,10 +205,6 @@ bool pbsys_bluetooth_tx_is_idle(void) {
 }
 
 // Contiki process
-
-static void on_event(void) {
-    process_poll(&pbsys_bluetooth_process);
-}
 
 static pbio_pybricks_error_t handle_receive(pbdrv_bluetooth_connection_t connection, const uint8_t *data, uint32_t size) {
     if (connection == PBDRV_BLUETOOTH_CONNECTION_PYBRICKS) {
@@ -226,7 +231,7 @@ static void send_done(void) {
     }
 
     send_busy = false;
-    process_poll(&pbsys_bluetooth_process);
+    pbsys_bluetooth_process_poll();
 }
 
 // drain all buffers and queues and reset global state
@@ -286,37 +291,69 @@ PROCESS_THREAD(pbsys_bluetooth_process, ev, data) {
 
     PROCESS_BEGIN();
 
-    pbdrv_bluetooth_set_on_event(on_event);
+    // Ensures Bluetooth preferences are loaded before we read them.
+    #if PBSYS_CONFIG_STORAGE && PBSYS_CONFIG_BLUETOOTH_TOGGLE
+    PROCESS_WAIT_EVENT_UNTIL(pbsys_storage_settings_get_settings() != NULL);
+    #endif // PBSYS_CONFIG_STORAGE && PBSYS_CONFIG_BLUETOOTH_TOGGLE
+
+    pbdrv_bluetooth_set_on_event(pbsys_bluetooth_process_poll);
     pbdrv_bluetooth_set_receive_handler(handle_receive);
 
     while (!pbsys_status_test(PBIO_PYBRICKS_STATUS_SHUTDOWN)) {
+
+        // Show inactive status only if user requested Bluetooth as disabled to
+        // avoid always flashing red in between program runs when disconnected.
+        if (!pbsys_storage_settings_bluetooth_enabled()) {
+            pbsys_status_light_bluetooth_set_color(PBIO_COLOR_RED);
+        }
+
         // make sure the Bluetooth chip is in reset long enough to actually reset
         etimer_set(&timer, 150);
         PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && etimer_expired(&timer));
 
-        pbdrv_bluetooth_power_on(true);
+        // Wait until Bluetooth enabled requested by user, but stop waiting on shutdown.
+        PROCESS_WAIT_UNTIL(pbsys_storage_settings_bluetooth_enabled() || pbsys_status_test(PBIO_PYBRICKS_STATUS_SHUTDOWN));
+        if (pbsys_status_test(PBIO_PYBRICKS_STATUS_SHUTDOWN)) {
+            break;
+        }
 
+        // Enable Bluetooth, and show on Bluetooth light if available.
+        pbsys_status_light_bluetooth_set_color(PBIO_COLOR_BLUE);
+        pbdrv_bluetooth_power_on(true);
         PROCESS_WAIT_UNTIL(pbdrv_bluetooth_is_ready());
 
+        // Start advertising, and show visual indicator on status light.
         pbdrv_bluetooth_start_advertising();
-
-        // TODO: allow user programs to initiate BLE connections
         pbsys_status_set(PBIO_PYBRICKS_STATUS_BLE_ADVERTISING);
+
+        // Now we are idle. We need to change the Bluetooth state and
+        // indicators if a host connects to us, or a user program starts, or we
+        // shut down, or Bluetooth is disabled by the user.
         PROCESS_WAIT_UNTIL(
             pbdrv_bluetooth_is_connected(PBDRV_BLUETOOTH_CONNECTION_LE)
             || pbsys_status_test(PBIO_PYBRICKS_STATUS_USER_PROGRAM_RUNNING)
-            || pbsys_status_test(PBIO_PYBRICKS_STATUS_SHUTDOWN));
+            || pbsys_status_test(PBIO_PYBRICKS_STATUS_SHUTDOWN)
+            || !pbsys_storage_settings_bluetooth_enabled());
 
+        // Now change the state depending on which of the above was triggered.
+
+        // If connected, advertising stops automatically. Otherwise manually
+        // stop advertising (if the user code started using the button or we
+        // are shutting down or or BLE became disabled).
         if (!pbdrv_bluetooth_is_connected(PBDRV_BLUETOOTH_CONNECTION_LE)) {
-            // if a connection wasn't made, we need to manually stop advertising
             pbdrv_bluetooth_stop_advertising();
         }
 
+        // In all cases, clear the advertising flag to stop blinking.
         pbsys_status_clear(PBIO_PYBRICKS_STATUS_BLE_ADVERTISING);
 
         PT_INIT(&status_monitor_pt);
 
-        while (pbdrv_bluetooth_is_connected(PBDRV_BLUETOOTH_CONNECTION_LE)
+        // The Bluetooth enabled flag can only change while disconnected and
+        // while no program is running. So here it just serves to skip the
+        // Bluetooth loop below and go directly to the disable step below it.
+        while (pbsys_storage_settings_bluetooth_enabled()
+               && pbdrv_bluetooth_is_connected(PBDRV_BLUETOOTH_CONNECTION_LE)
                && !pbsys_status_test(PBIO_PYBRICKS_STATUS_SHUTDOWN)) {
 
             if (pbdrv_bluetooth_is_connected(PBDRV_BLUETOOTH_CONNECTION_PYBRICKS)) {
