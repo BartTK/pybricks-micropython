@@ -3,70 +3,94 @@
 
 #include <stdint.h>
 
-#include <contiki.h>
+#include <pbdrv/bluetooth.h>
+#include <pbdrv/watchdog.h>
+#include <pbdrv/usb.h>
 
+#include <pbio/busy_count.h>
 #include <pbio/main.h>
+#include <pbio/os.h>
 
 #include <pbsys/battery.h>
-#include <pbsys/bluetooth.h>
+#include <pbsys/host.h>
+#include <pbsys/status.h>
 
-#include "core.h"
 #include "hmi.h"
-#include "io_ports.h"
 #include "light.h"
 #include "storage.h"
-#include "supervisor.h"
 #include "program_stop.h"
 
-uint32_t pbsys_init_busy_count;
+static pbio_os_process_t pbsys_system_poll_process;
 
-PROCESS(pbsys_system_process, "System");
+static pbio_error_t pbsys_system_poll_process_thread(pbio_os_state_t *state, void *context) {
 
-PROCESS_THREAD(pbsys_system_process, ev, data) {
-    static struct etimer timer;
+    static pbio_os_timer_t timer;
 
-    PROCESS_BEGIN();
+    PBIO_OS_ASYNC_BEGIN(state);
 
-    etimer_set(&timer, 50);
+    pbio_os_timer_set(&timer, 50);
 
     for (;;) {
-        PROCESS_WAIT_EVENT();
-        pbsys_hmi_handle_event(ev, data);
-        if (ev == PROCESS_EVENT_TIMER && etimer_expired(&timer)) {
-            etimer_reset(&timer);
-            pbsys_battery_poll();
-            pbsys_hmi_poll();
-            pbsys_io_ports_poll();
-            pbsys_supervisor_poll();
-            pbsys_program_stop_poll();
+        PBIO_OS_AWAIT_UNTIL(state, pbio_os_timer_is_expired(&timer));
+        pbio_os_timer_extend(&timer);
+
+        pbsys_battery_poll();
+        pbsys_program_stop_poll();
+        pbsys_status_light_poll();
+
+        // keep the hub from resetting itself
+        pbdrv_watchdog_update();
+
+        if (pbsys_system_poll_process.request == PBIO_OS_PROCESS_REQUEST_TYPE_CANCEL) {
+            // After shutdown we only poll critical system processes.
+            continue;
+        }
+
+        // Monitor USB state.
+        if (pbdrv_usb_connection_is_active()) {
+            pbsys_status_set(PBIO_PYBRICKS_STATUS_USB_HOST_CONNECTED);
+        } else {
+            pbsys_status_clear(PBIO_PYBRICKS_STATUS_USB_HOST_CONNECTED);
+        }
+
+        // Monitor BLE state.
+        if (pbdrv_bluetooth_is_connected(PBDRV_BLUETOOTH_CONNECTION_PYBRICKS)) {
+            pbsys_status_set(PBIO_PYBRICKS_STATUS_BLE_HOST_CONNECTED);
+        } else {
+            pbsys_status_clear(PBIO_PYBRICKS_STATUS_BLE_HOST_CONNECTED);
         }
     }
 
-    PROCESS_END();
+    // Unreachable
+    PBIO_OS_ASYNC_END(PBIO_ERROR_FAILED);
 }
 
 void pbsys_init(void) {
-    pbsys_battery_init();
-    pbsys_bluetooth_init();
-    pbsys_hmi_init();
-    pbsys_storage_init();
-    process_start(&pbsys_system_process);
 
-    while (pbsys_init_busy()) {
-        pbio_do_one_event();
+    // Makes user data and settings available to modules below, so must be done first.
+    pbsys_storage_init();
+
+    pbsys_battery_init();
+    pbsys_hmi_init();
+    pbsys_host_init();
+    pbsys_status_light_init();
+
+    pbio_os_process_start(&pbsys_system_poll_process, pbsys_system_poll_process_thread, NULL);
+
+    while (pbio_busy_count_busy()) {
+        pbio_os_run_processes_and_wait_for_event();
     }
 }
 
 void pbsys_deinit(void) {
 
-    pbsys_status_light_bluetooth_deinit();
+    pbio_os_process_make_request(&pbsys_system_poll_process, PBIO_OS_PROCESS_REQUEST_TYPE_CANCEL);
+
     pbsys_storage_deinit();
+    pbsys_hmi_deinit();
 
-    uint32_t start = pbdrv_clock_get_ms();
-
-    // Wait for all relevant pbsys processes to end, but at least 500 ms so we
-    // see a shutdown animation even if the button is released sooner.
-    while (pbsys_init_busy() || pbdrv_clock_get_ms() - start < 500) {
-        pbio_do_one_event();
+    // Wait for all relevant pbsys processes to end.
+    while (pbio_busy_count_busy()) {
+        pbio_os_run_processes_and_wait_for_event();
     }
 }

@@ -118,6 +118,7 @@ void pbio_set_uint32_be(uint8_t *buf, uint32_t value) {
     buf[3] = value;
 }
 
+void pbio_uuid128_le_copy(uint8_t *dst, const uint8_t *src);
 bool pbio_uuid128_reverse_compare(const uint8_t *uuid1, const uint8_t *uuid2);
 void pbio_uuid128_reverse_copy(uint8_t *dst, const uint8_t *src);
 
@@ -128,6 +129,8 @@ void pbio_uuid128_reverse_copy(uint8_t *dst, const uint8_t *src);
 #define PBIO_ONESHOT(name) bool name = false
 
 bool pbio_oneshot(bool value, bool *state);
+
+bool pbio_util_time_has_passed(uint32_t sample, uint32_t base);
 
 #endif // _PBIO_UTIL_H_
 

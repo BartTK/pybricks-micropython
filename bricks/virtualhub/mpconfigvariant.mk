@@ -30,8 +30,8 @@ MICROPY_PY_SOCKET = 1
 # ffi module requires libffi (libffi-dev Debian package)
 MICROPY_PY_FFI = 1
 
-# ussl module requires one of the TLS libraries below
-MICROPY_PY_USSL = 0
+# ssl module requires one of the TLS libraries below
+MICROPY_PY_SSL = 0
 # axTLS has minimal size but implements only a subset of modern TLS
 # functionality, so may have problems with some servers.
 MICROPY_SSL_AXTLS = 0
@@ -71,10 +71,3 @@ SRC_THIRDPARTY_C += $(CONTIKI_SRC_C) $(PBIO_SRC_C)
 
 # realtime library for timer signals
 LIB += -lrt
-
-# embedded Python
-EMBEDDED_PYTHON ?= python3.10
-PYTHON_CONFIG := $(EMBEDDED_PYTHON)-config
-
-INC += $(shell $(PYTHON_CONFIG) --includes)
-LDFLAGS += -rdynamic $(shell $(PYTHON_CONFIG) --ldflags --embed)

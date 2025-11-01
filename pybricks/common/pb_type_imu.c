@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include <pbio/drivebase.h>
 #include <pbio/error.h>
 #include <pbio/geometry.h>
 #include <pbio/imu.h>
@@ -30,8 +31,14 @@ typedef struct _pb_type_imu_obj_t {
 } pb_type_imu_obj_t;
 
 // pybricks._common.IMU.up
-static mp_obj_t pb_type_imu_up(mp_obj_t self_in) {
-    switch (pbio_imu_get_up_side()) {
+static mp_obj_t pb_type_imu_up(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
+        pb_type_imu_obj_t, self,
+        PB_ARG_DEFAULT_TRUE(calibrated));
+
+    (void)self;
+
+    switch (pbio_imu_get_up_side(mp_obj_is_true(calibrated_in))) {
         default:
         case PBIO_GEOMETRY_SIDE_FRONT:
             return MP_OBJ_FROM_PTR(&pb_Side_FRONT_obj);
@@ -47,26 +54,35 @@ static mp_obj_t pb_type_imu_up(mp_obj_t self_in) {
             return MP_OBJ_FROM_PTR(&pb_Side_BOTTOM_obj);
     }
 }
-MP_DEFINE_CONST_FUN_OBJ_1(pb_type_imu_up_obj, pb_type_imu_up);
+static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_imu_up_obj, 1, pb_type_imu_up);
 
 // pybricks._common.IMU.tilt
-static mp_obj_t pb_type_imu_tilt(mp_obj_t self_in) {
+static mp_obj_t pb_type_imu_tilt(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
+        pb_type_imu_obj_t, self,
+        PB_ARG_DEFAULT_TRUE(calibrated));
+
+    (void)self;
 
     // Read acceleration in the user frame.
     pbio_geometry_xyz_t accl;
-    pbio_imu_get_acceleration(&accl);
+    if (mp_obj_is_true(calibrated_in)) {
+        pbio_imu_get_tilt_vector(&accl);
+    } else {
+        pbio_imu_get_acceleration(&accl, false);
+    }
 
     mp_obj_t tilt[2];
     // Pitch
     float pitch = atan2f(-accl.x, sqrtf(accl.z * accl.z + accl.y * accl.y));
-    tilt[0] = mp_obj_new_int_from_float(pitch * 57.296f);
+    tilt[0] = mp_obj_new_float_from_f(pitch * 57.296f);
 
     // Roll
     float roll = atan2f(accl.y, accl.z);
-    tilt[1] = mp_obj_new_int_from_float(roll * 57.296f);
+    tilt[1] = mp_obj_new_float_from_f(roll * 57.296f);
     return mp_obj_new_tuple(2, tilt);
 }
-MP_DEFINE_CONST_FUN_OBJ_1(pb_type_imu_tilt_obj, pb_type_imu_tilt);
+static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_imu_tilt_obj, 1, pb_type_imu_tilt);
 
 static void pb_type_imu_extract_axis(mp_obj_t obj_in, pbio_geometry_xyz_t *vector) {
     if (!mp_obj_is_type(obj_in, &pb_type_Matrix)) {
@@ -85,11 +101,12 @@ static void pb_type_imu_extract_axis(mp_obj_t obj_in, pbio_geometry_xyz_t *vecto
 static mp_obj_t pb_type_imu_acceleration(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
         pb_type_imu_obj_t, self,
-        PB_ARG_DEFAULT_NONE(axis));
+        PB_ARG_DEFAULT_NONE(axis),
+        PB_ARG_DEFAULT_TRUE(calibrated));
 
     (void)self;
     pbio_geometry_xyz_t acceleration;
-    pbio_imu_get_acceleration(&acceleration);
+    pbio_imu_get_acceleration(&acceleration, mp_obj_is_true(calibrated_in));
 
     // If no axis is specified, return a vector of values.
     if (axis_in == mp_const_none) {
@@ -110,11 +127,12 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_imu_acceleration_obj, 1, pb_type_imu_a
 static mp_obj_t pb_type_imu_angular_velocity(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
         pb_type_imu_obj_t, self,
-        PB_ARG_DEFAULT_NONE(axis));
+        PB_ARG_DEFAULT_NONE(axis),
+        PB_ARG_DEFAULT_TRUE(calibrated));
 
     (void)self;
     pbio_geometry_xyz_t angular_velocity;
-    pbio_imu_get_angular_velocity(&angular_velocity);
+    pbio_imu_get_angular_velocity(&angular_velocity, mp_obj_is_true(calibrated_in));
 
     // If no axis is specified, return a vector of values.
     if (axis_in == mp_const_none) {
@@ -135,7 +153,8 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_imu_angular_velocity_obj, 1, pb_type_i
 static mp_obj_t pb_type_imu_rotation(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
         pb_type_imu_obj_t, self,
-        PB_ARG_DEFAULT_NONE(axis));
+        PB_ARG_DEFAULT_NONE(axis),
+        PB_ARG_DEFAULT_TRUE(calibrated));
 
     (void)self;
 
@@ -144,7 +163,7 @@ static mp_obj_t pb_type_imu_rotation(size_t n_args, const mp_obj_t *pos_args, mp
     pb_type_imu_extract_axis(axis_in, &axis);
 
     float rotation_angle;
-    pb_assert(pbio_imu_get_single_axis_rotation(&axis, &rotation_angle));
+    pb_assert(pbio_imu_get_single_axis_rotation(&axis, &rotation_angle, mp_obj_is_true(calibrated_in)));
     return mp_obj_new_float_from_f(rotation_angle);
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_imu_rotation_obj, 1, pb_type_imu_rotation);
@@ -167,45 +186,144 @@ static mp_obj_t pb_type_imu_settings(size_t n_args, const mp_obj_t *pos_args, mp
         pb_type_imu_obj_t, self,
         PB_ARG_DEFAULT_NONE(angular_velocity_threshold),
         PB_ARG_DEFAULT_NONE(acceleration_threshold),
-        PB_ARG_DEFAULT_NONE(heading_correction));
+        PB_ARG_DEFAULT_NONE(heading_correction),
+        PB_ARG_DEFAULT_NONE(angular_velocity_bias),
+        PB_ARG_DEFAULT_NONE(angular_velocity_scale),
+        PB_ARG_DEFAULT_NONE(acceleration_correction));
 
     (void)self;
 
     // Return current values if no arguments are given.
-    if (angular_velocity_threshold_in == mp_const_none &&
-        acceleration_threshold_in == mp_const_none &&
-        heading_correction_in == mp_const_none) {
-        float angular_velocity;
-        float acceleration;
-        float heading_correction;
-        pbio_imu_get_settings(&angular_velocity, &acceleration, &heading_correction);
+    if (PB_PARSE_ARGS_METHOD_ALL_NONE()) {
+        // Raises if not set, so can safely dereference.
+        pbio_imu_persistent_settings_t *get_settings;
+        pb_assert(pbio_imu_get_settings(&get_settings));
+
+        mp_obj_t acceleration_corrections[] = {
+            mp_obj_new_float_from_f(get_settings->gravity_pos.x),
+            mp_obj_new_float_from_f(get_settings->gravity_neg.x),
+            mp_obj_new_float_from_f(get_settings->gravity_pos.y),
+            mp_obj_new_float_from_f(get_settings->gravity_neg.y),
+            mp_obj_new_float_from_f(get_settings->gravity_pos.z),
+            mp_obj_new_float_from_f(get_settings->gravity_neg.z),
+        };
+
+        mp_obj_t angular_velocity_bias[] = {
+            mp_obj_new_float_from_f(get_settings->angular_velocity_bias_start.x),
+            mp_obj_new_float_from_f(get_settings->angular_velocity_bias_start.y),
+            mp_obj_new_float_from_f(get_settings->angular_velocity_bias_start.z),
+        };
+
+        mp_obj_t angular_velocity_scale[] = {
+            mp_obj_new_float_from_f(get_settings->angular_velocity_scale.x),
+            mp_obj_new_float_from_f(get_settings->angular_velocity_scale.y),
+            mp_obj_new_float_from_f(get_settings->angular_velocity_scale.z),
+        };
+
         mp_obj_t ret[] = {
-            mp_obj_new_float_from_f(angular_velocity),
-            mp_obj_new_float_from_f(acceleration),
-            mp_obj_new_float_from_f(heading_correction),
+            mp_obj_new_float_from_f(get_settings->gyro_stationary_threshold),
+            mp_obj_new_float_from_f(get_settings->accel_stationary_threshold),
+            mp_obj_new_tuple(MP_ARRAY_SIZE(angular_velocity_bias), angular_velocity_bias),
+            mp_obj_new_tuple(MP_ARRAY_SIZE(angular_velocity_scale), angular_velocity_scale),
+            mp_obj_new_tuple(MP_ARRAY_SIZE(acceleration_corrections), acceleration_corrections),
+            mp_obj_new_float_from_f(get_settings->heading_correction_1d),
         };
         return mp_obj_new_tuple(MP_ARRAY_SIZE(ret), ret);
     }
 
-    // Otherwise set new values, only if given.
-    pb_assert(pbio_imu_set_settings(
-        angular_velocity_threshold_in == mp_const_none ? NAN : mp_obj_get_float(angular_velocity_threshold_in),
-        acceleration_threshold_in == mp_const_none ? NAN : mp_obj_get_float(acceleration_threshold_in),
-        heading_correction_in == mp_const_none ? NAN : mp_obj_get_float(heading_correction_in)
-        ));
+    // Apply new settings, using flags to indicate which should be updated.
+    pbio_imu_persistent_settings_t set_settings = { 0 };
+    if (angular_velocity_threshold_in != mp_const_none) {
+        set_settings.flags |= PBIO_IMU_SETTINGS_FLAGS_GYRO_STATIONARY_THRESHOLD_SET;
+        set_settings.gyro_stationary_threshold = mp_obj_get_float(angular_velocity_threshold_in);
+    }
 
-    // Request that changed settings are saved on shutdown.
-    pbsys_storage_settings_save_imu_settings();
+    if (acceleration_threshold_in != mp_const_none) {
+        set_settings.flags |= PBIO_IMU_SETTINGS_FLAGS_ACCEL_STATIONARY_THRESHOLD_SET;
+        set_settings.accel_stationary_threshold = mp_obj_get_float(acceleration_threshold_in);
+    }
+
+    if (angular_velocity_bias_in != mp_const_none) {
+        mp_obj_t *bias;
+        size_t size;
+        mp_obj_get_array(angular_velocity_bias_in, &size, &bias);
+        if (size != 3) {
+            mp_raise_ValueError(MP_ERROR_TEXT("Angular velocity bias must be a 3-element tuple."));
+        }
+        set_settings.angular_velocity_bias_start.x = mp_obj_get_float(bias[0]);
+        set_settings.angular_velocity_bias_start.y = mp_obj_get_float(bias[1]);
+        set_settings.angular_velocity_bias_start.z = mp_obj_get_float(bias[2]);
+        set_settings.flags |= PBIO_IMU_SETTINGS_FLAGS_GYRO_BIAS_INITIAL_SET;
+    }
+
+    if (angular_velocity_scale_in != mp_const_none) {
+        mp_obj_t *scale;
+        size_t size;
+        mp_obj_get_array(angular_velocity_scale_in, &size, &scale);
+        if (size != 3) {
+            mp_raise_ValueError(MP_ERROR_TEXT("Angular velocity scale must be a 3-element tuple."));
+        }
+        set_settings.angular_velocity_scale.x = mp_obj_get_float(scale[0]);
+        set_settings.angular_velocity_scale.y = mp_obj_get_float(scale[1]);
+        set_settings.angular_velocity_scale.z = mp_obj_get_float(scale[2]);
+        set_settings.flags |= PBIO_IMU_SETTINGS_FLAGS_GYRO_SCALE_SET;
+    }
+
+    if (acceleration_correction_in != mp_const_none) {
+        mp_obj_t *gravity;
+        size_t size;
+        mp_obj_get_array(acceleration_correction_in, &size, &gravity);
+        if (size != 6) {
+            mp_raise_ValueError(MP_ERROR_TEXT("Acceleration correction must be a 6-element tuple."));
+        }
+        set_settings.flags |= PBIO_IMU_SETTINGS_FLAGS_ACCEL_CALIBRATED;
+        set_settings.gravity_pos.x = mp_obj_get_float(gravity[0]);
+        set_settings.gravity_neg.x = mp_obj_get_float(gravity[1]);
+        set_settings.gravity_pos.y = mp_obj_get_float(gravity[2]);
+        set_settings.gravity_neg.y = mp_obj_get_float(gravity[3]);
+        set_settings.gravity_pos.z = mp_obj_get_float(gravity[4]);
+        set_settings.gravity_neg.z = mp_obj_get_float(gravity[5]);
+    }
+
+    if (heading_correction_in != mp_const_none) {
+        set_settings.flags |= PBIO_IMU_SETTINGS_FLAGS_HEADING_CORRECTION_1D_SET;
+        set_settings.heading_correction_1d = mp_obj_get_float(heading_correction_in);
+    }
+
+    pb_assert(pbio_imu_set_settings(&set_settings));
+
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_imu_settings_obj, 1, pb_type_imu_settings);
 
 // pybricks._common.IMU.heading
-static mp_obj_t pb_type_imu_heading(mp_obj_t self_in) {
-    (void)self_in;
-    return mp_obj_new_float(pbio_imu_get_heading());
+static mp_obj_t pb_type_imu_heading(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
+        pb_type_imu_obj_t, self,
+        PB_ARG_DEFAULT_NONE(heading_type));
+
+    (void)self;
+    pbio_imu_heading_type_t type = heading_type_in == MP_OBJ_NEW_QSTR(MP_QSTR_3D) ?
+        PBIO_IMU_HEADING_TYPE_3D : PBIO_IMU_HEADING_TYPE_1D;
+
+    return mp_obj_new_float(pbio_imu_get_heading(type));
 }
-MP_DEFINE_CONST_FUN_OBJ_1(pb_type_imu_heading_obj, pb_type_imu_heading);
+static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_imu_heading_obj, 1, pb_type_imu_heading);
+
+// pybricks._common.IMU.orientation
+static mp_obj_t common_IMU_orientation(mp_obj_t self_in) {
+
+    // Make matrix. REVISIT: Dedicated call from orientation matrix.
+    pb_type_Matrix_obj_t *matrix = MP_OBJ_TO_PTR(pb_type_Matrix_make_bitmap(3, 3, 1.0f, 0));
+
+    pbio_geometry_matrix_3x3_t orientation;
+    pbio_orientation_imu_get_orientation(&orientation);
+
+    memcpy(matrix->data, orientation.values, sizeof(orientation.values));
+
+    return MP_OBJ_FROM_PTR(matrix);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(common_IMU_orientation_obj, common_IMU_orientation);
 
 // pybricks._common.IMU.reset_heading
 static mp_obj_t pb_type_imu_reset_heading(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
@@ -213,34 +331,16 @@ static mp_obj_t pb_type_imu_reset_heading(size_t n_args, const mp_obj_t *pos_arg
         pb_type_imu_obj_t, self,
         PB_ARG_REQUIRED(angle));
 
+    if (pbio_drivebase_any_uses_gyro()) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Can't reset heading while gyro in use. Stop driving first."));
+    }
+
     // Set the new angle
     (void)self;
     pbio_imu_set_heading(mp_obj_get_float(angle_in));
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_imu_reset_heading_obj, 1, pb_type_imu_reset_heading);
-
-// pybricks._common.IMU.update_heading_correction
-static mp_obj_t pb_type_imu_update_heading_correction(mp_obj_t self_in) {
-    pb_type_imu_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    pb_module_tools_assert_blocking();
-
-    // Disable stop button and cache original setting to restore later.
-    pbio_button_flags_t stop_button = pbsys_program_stop_get_buttons();
-
-    nlr_buf_t nlr;
-    if (nlr_push(&nlr) == 0) {
-        mp_obj_t func = pb_function_import_helper(MP_QSTR__hub_extra, MP_QSTR_imu_update_heading_correction);
-        mp_call_function_1(func, self->hub);
-        pbsys_program_stop_set_buttons(stop_button);
-        nlr_pop();
-    } else {
-        pbsys_program_stop_set_buttons(stop_button);
-        nlr_jump(nlr.ret_val);
-    }
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_1(pb_type_imu_update_heading_correction_obj, pb_type_imu_update_heading_correction);
 
 // dir(pybricks.common.IMU)
 static const mp_rom_map_elem_t pb_type_imu_locals_dict_table[] = {
@@ -254,7 +354,7 @@ static const mp_rom_map_elem_t pb_type_imu_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_stationary),       MP_ROM_PTR(&pb_type_imu_stationary_obj)      },
     { MP_ROM_QSTR(MP_QSTR_tilt),             MP_ROM_PTR(&pb_type_imu_tilt_obj)            },
     { MP_ROM_QSTR(MP_QSTR_up),               MP_ROM_PTR(&pb_type_imu_up_obj)              },
-    { MP_ROM_QSTR(MP_QSTR_update_heading_correction), MP_ROM_PTR(&pb_type_imu_update_heading_correction_obj)},
+    { MP_ROM_QSTR(MP_QSTR_orientation),      MP_ROM_PTR(&common_IMU_orientation_obj)     },
 };
 static MP_DEFINE_CONST_DICT(pb_type_imu_locals_dict, pb_type_imu_locals_dict_table);
 
@@ -278,7 +378,7 @@ mp_obj_t pb_type_IMU_obj_new(mp_obj_t hub_in, mp_obj_t top_side_axis_in, mp_obj_
     pbio_geometry_xyz_t top_side_axis;
     pb_type_imu_extract_axis(top_side_axis_in, &top_side_axis);
 
-    pbio_imu_set_base_orientation(&front_side_axis, &top_side_axis);
+    pb_assert(pbio_imu_set_base_orientation(&front_side_axis, &top_side_axis));
 
     // Return singleton instance.
     singleton_imu_obj.hub = hub_in;

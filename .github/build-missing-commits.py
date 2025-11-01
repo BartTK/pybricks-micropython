@@ -20,7 +20,7 @@ PYBRICKS_PATH = os.environ.get("PYBRICKS_PATH", ".")
 
 PYBRICKS_BRANCH = "origin/master"
 
-HUBS = ["movehub", "cityhub", "technichub", "primehub", "essentialhub", "nxt"]
+HUBS = ["movehub", "cityhub", "technichub", "primehub", "essentialhub", "nxt", "ev3"]
 
 GITHUB_RUN_NUMBER = os.environ.get("GITHUB_RUN_NUMBER")
 
@@ -97,7 +97,10 @@ for commit in pybricks.iter_commits(
         "update", "--init", "lib/stm32lib"
     )
     pybricks.git.submodule("update", "--init", "--checkout", "lib/btstack")
-    pybricks.git.submodule("update", "--init", "--checkout", "lib/STM32_USB_Device_Library")
+    pybricks.git.submodule(
+        "update", "--init", "--checkout", "lib/STM32_USB_Device_Library"
+    )
+    pybricks.git.submodule("update", "--init", "--checkout", "lib/umm_malloc")
 
     # Make mpy-cross once
     print("Building mpy-cross")

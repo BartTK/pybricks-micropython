@@ -12,7 +12,7 @@
 
 #include <pbdrv/bluetooth.h>
 #include <pbio/version.h>
-#include <pbsys/bluetooth.h>
+#include <pbsys/host.h>
 #include <pbsys/status.h>
 
 #include <pybricks/common.h>
@@ -39,7 +39,7 @@ static const mp_rom_obj_tuple_t pybricks_info_obj = {
 };
 
 #if MICROPY_MODULE_ATTR_DELEGATION
-static void pb_package_pybricks_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
+void pb_package_pybricks_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
     // This will get called when external imports tries to store the module
     // as an attribute to this package. This is not currently supported, but
     // it should not cause an exception, so indicate success.
@@ -47,11 +47,67 @@ static void pb_package_pybricks_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest
 }
 #endif
 
+#if MICROPY_MODULE_BUILTIN_SUBPACKAGES
+#if PYBRICKS_PY_EXPERIMENTAL
+extern const mp_obj_module_t pb_module_experimental;
+#endif
+#if PYBRICKS_PY_HUBS
+extern const mp_obj_module_t pb_module_hubs;
+#endif
+#if PYBRICKS_PY_NXTDEVICES
+extern const mp_obj_module_t pb_module_nxtdevices;
+#endif
+#if PYBRICKS_PY_EV3DEVICES
+extern const mp_obj_module_t pb_module_ev3devices;
+#endif
+#if PYBRICKS_PY_PUPDEVICES
+extern const mp_obj_module_t pb_module_pupdevices;
+#endif
+#if PYBRICKS_PY_IODEVICES
+extern const mp_obj_module_t pb_module_iodevices;
+#endif
+#if PYBRICKS_PY_PARAMETERS
+extern const mp_obj_module_t pb_module_parameters;
+#endif
+#if PYBRICKS_PY_TOOLS
+extern const mp_obj_module_t pb_module_tools;
+#endif
+#if PYBRICKS_PY_ROBOTICS
+extern const mp_obj_module_t pb_module_robotics;
+#endif
+#endif
+
 static const mp_rom_map_elem_t pybricks_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__),            MP_ROM_QSTR(MP_QSTR_pybricks) },
     { MP_ROM_QSTR(MP_QSTR_version),             MP_ROM_PTR(&pybricks_info_obj)},
-    #if MICROPY_MODULE_ATTR_DELEGATION
-    MP_MODULE_ATTR_DELEGATION_ENTRY(&pb_package_pybricks_attr),
+    #if MICROPY_MODULE_BUILTIN_SUBPACKAGES
+    #if PYBRICKS_PY_EXPERIMENTAL
+    { MP_ROM_QSTR(MP_QSTR_experimental), MP_ROM_PTR(&pb_module_experimental) },
+    #endif
+    #if PYBRICKS_PY_HUBS
+    { MP_ROM_QSTR(MP_QSTR_hubs), MP_ROM_PTR(&pb_module_hubs) },
+    #endif
+    #if PYBRICKS_PY_NXTDEVICES
+    { MP_ROM_QSTR(MP_QSTR_nxtdevices), MP_ROM_PTR(&pb_module_nxtdevices) },
+    #endif
+    #if PYBRICKS_PY_EV3DEVICES
+    { MP_ROM_QSTR(MP_QSTR_ev3devices), MP_ROM_PTR(&pb_module_ev3devices) },
+    #endif
+    #if PYBRICKS_PY_PUPDEVICES
+    { MP_ROM_QSTR(MP_QSTR_pupdevices), MP_ROM_PTR(&pb_module_pupdevices) },
+    #endif
+    #if PYBRICKS_PY_IODEVICES
+    { MP_ROM_QSTR(MP_QSTR_iodevices), MP_ROM_PTR(&pb_module_iodevices) },
+    #endif
+    #if PYBRICKS_PY_PARAMETERS
+    { MP_ROM_QSTR(MP_QSTR_parameters), MP_ROM_PTR(&pb_module_parameters) },
+    #endif
+    #if PYBRICKS_PY_TOOLS
+    { MP_ROM_QSTR(MP_QSTR_tools), MP_ROM_PTR(&pb_module_tools) },
+    #endif
+    #if PYBRICKS_PY_ROBOTICS
+    { MP_ROM_QSTR(MP_QSTR_robotics), MP_ROM_PTR(&pb_module_robotics) },
+    #endif
     #endif
 };
 static MP_DEFINE_CONST_DICT(pb_package_pybricks_globals, pybricks_globals_table);
@@ -61,12 +117,8 @@ const mp_obj_module_t pb_package_pybricks = {
     .globals = (mp_obj_dict_t *)&pb_package_pybricks_globals,
 };
 
-#if PYBRICKS_RUNS_ON_EV3DEV
-// ev3dev extends the C module in Python
-MP_REGISTER_MODULE(MP_QSTR_pybricks_c, pb_package_pybricks);
-#else
 MP_REGISTER_MODULE(MP_QSTR_pybricks, pb_package_pybricks);
-#endif
+MP_REGISTER_MODULE_DELEGATION(pb_package_pybricks, pb_package_pybricks_attr);
 
 #if PYBRICKS_OPT_COMPILER
 /**
@@ -132,30 +184,3 @@ void pb_package_pybricks_init(bool import_all) {
     pb_module_tools_init();
 }
 #endif // PYBRICKS_OPT_COMPILER
-
-// REVISIT: move these to object finalizers if we enable finalizers in the GC
-void pb_package_pybricks_deinit(void) {
-    #if PYBRICKS_PY_COMMON_BLE
-    pb_type_ble_start_cleanup();
-    #endif
-
-    #if PYBRICKS_PY_PUPDEVICES_REMOTE
-    // Disconnect from remote or LWP3 device.
-    pb_type_lwp3device_start_cleanup();
-    #endif // PYBRICKS_PY_PUPDEVICES_REMOTE
-
-    #if PYBRICKS_PY_COMMON_BLE || PYBRICKS_PY_PUPDEVICES_REMOTE
-    // By queueing and awaiting a task that does nothing, we know that all user
-    // tasks and deinit tasks queued before it have completed.
-    static pbio_task_t noop_task;
-    pbdrv_bluetooth_queue_noop(&noop_task);
-    while (noop_task.status == PBIO_ERROR_AGAIN || !pbsys_bluetooth_tx_is_idle()) {
-        MICROPY_VM_HOOK_LOOP
-
-        // Stop waiting (and potentially blocking) in case of forced shutdown.
-        if (pbsys_status_test(PBIO_PYBRICKS_STATUS_SHUTDOWN_REQUEST)) {
-            break;
-        }
-    }
-    #endif // PYBRICKS_PY_COMMON_BLE || PYBRICKS_PY_PUPDEVICES_REMOTE
-}

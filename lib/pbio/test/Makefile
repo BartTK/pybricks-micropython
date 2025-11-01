@@ -34,8 +34,8 @@ endif
 
 all: $(PROG)
 
-# using tinytest from upstream MicroPython
-TINY_TEST_DIR = ../../../micropython/lib/tinytest
+# tinytest dependency
+TINY_TEST_DIR = ../../tinytest
 TINY_TEST_INC = -I$(TINY_TEST_DIR)
 TINY_TEST_SRC = $(TINY_TEST_DIR)/tinytest.c
 
@@ -54,7 +54,9 @@ CONTIKI_SRC = $(addprefix $(CONTIKI_DIR)/, \
 # pbio dependency
 LEGO_DIR = ../../lego
 LEGO_INC = -I$(LEGO_DIR)
-LEGO_SRC =
+LEGO_SRC = $(addprefix $(LEGO_DIR)/, \
+	device.c \
+	)
 
 # pbio dependency
 LWRB_DIR = ../../lwrb/src
@@ -118,7 +120,7 @@ BTSTACK_SRC += $(addprefix $(BTSTACK_DIR)/platform/posix/,\
 PBIO_DIR = ..
 PBIO_INC = -I$(PBIO_DIR)/include -I$(PBIO_DIR)
 PBIO_SRC = $(PBIO_DIR)/platform/test/platform.c \
-	$(shell find $(PBIO_DIR)/drv ! -wholename "*/ev3dev_stretch/*" -and ! -wholename "*/stm32_usbd/*" -and -name "*.c") \
+	$(shell find $(PBIO_DIR)/drv ! -wholename "*/uart_ev3_pru_lib/*" -and ! -wholename "*/stm32_usbd/*" -and -name "*.c") \
 	$(shell find $(PBIO_DIR)/src -name "*.c") \
 	$(shell find $(PBIO_DIR)/sys -name "*.c") \
 	$(shell find $(PBIO_DIR)/src/motor -name "*.c") \
@@ -165,7 +167,9 @@ $(BUILD_PREFIX)/%.d: %.c
 	$(Q)mkdir -p $(dir $@)
 	$(Q)$(CC) $(CFLAGS) -MM -MT $(patsubst %.d,%.o,$@) $< > $@
 
+ifneq ($(MAKECMDGOALS),clean)
 -include $(DEP)
+endif
 
 $(BUILD_PREFIX)/%.o: %.c $(BUILD_PREFIX)/%.d Makefile
 	$(Q)mkdir -p $(dir $@)
@@ -183,7 +187,6 @@ build-coverage/lcov.info: Makefile $(SRC)
 		--directory build-coverage/lib/pbio/src \
 		--directory build-coverage/lib/pbio/sys \
 		--exclude **/btstack/** \
-		--exclude **/contiki-core/** \
 
 coverage-html: build-coverage/lcov.info
 	$(Q)genhtml $^ --output-directory build-coverage/html

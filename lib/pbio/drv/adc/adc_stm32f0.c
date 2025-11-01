@@ -8,8 +8,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include <contiki.h>
-
+#include <pbdrv/adc.h>
 #include <pbio/config.h>
 #include <pbio/error.h>
 
@@ -18,8 +17,6 @@
 #if PBDRV_CONFIG_ADC_STM32F0_RANDOM
 #include "../random/random_adc.h"
 #endif
-
-PROCESS(pbdrv_adc_process, "ADC");
 
 static void pbdrv_adc_calibrate(void) {
     // NB: it takes more than this to make sure ADC is disabled
@@ -35,7 +32,7 @@ static void pbdrv_adc_calibrate(void) {
     }
 }
 
-static void pbdrv_adc_init(void) {
+void pbdrv_adc_init(void) {
     // enable power domain
     RCC->APB2ENR |= RCC_APB2ENR_ADCEN;
 
@@ -63,6 +60,10 @@ static void pbdrv_adc_init(void) {
     // some kind of ID resistor?
 }
 
+pbio_error_t pbdrv_adc_await_new_samples(pbio_os_state_t *state, uint32_t *start_time_us, uint32_t future_us) {
+    return PBIO_ERROR_NOT_IMPLEMENTED;
+}
+
 // does a single conversion for the specified channel
 pbio_error_t pbdrv_adc_get_ch(uint8_t ch, uint16_t *value) {
     if (ch > ADC_CHSELR_CHSEL18_Pos) {
@@ -83,21 +84,6 @@ pbio_error_t pbdrv_adc_get_ch(uint8_t ch, uint16_t *value) {
     #endif
 
     return PBIO_SUCCESS;
-}
-
-PROCESS_THREAD(pbdrv_adc_process, ev, data) {
-    // TODO: use DMA for background updates and add filtering
-    // PROCESS_POLLHANDLER(pbdrv_adc_poll());
-
-    PROCESS_BEGIN();
-
-    pbdrv_adc_init();
-
-    while (true) {
-        PROCESS_WAIT_EVENT();
-    }
-
-    PROCESS_END();
 }
 
 #endif // PBDRV_CONFIG_ADC_STM32F0

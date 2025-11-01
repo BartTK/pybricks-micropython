@@ -8,8 +8,10 @@
 #include <stm32f4xx_hal.h>
 
 #include <pbdrv/clock.h>
+#include <pbdrv/ioport.h>
 #include "pbio/light_matrix.h"
 #include "pbio/version.h"
+#include <pbio/port_interface.h>
 
 #include "../../drv/adc/adc_stm32_hal.h"
 #include "../../drv/block_device/block_device_w25qxx_stm32.h"
@@ -19,9 +21,7 @@
 #include "../../drv/button/button_gpio.h"
 #include "../../drv/charger/charger_mp2639a.h"
 #include "../../drv/imu/imu_lsm6ds3tr_c_stm32.h"
-#include "../../drv/ioport/ioport_pup.h"
 #include "../../drv/led/led_pwm.h"
-#include "../../drv/legodev/legodev_pup.h"
 #include "../../drv/motor_driver/motor_driver_hbridge_pwm.h"
 #include "../../drv/pwm/pwm_lp50xx_stm32.h"
 #include "../../drv/pwm/pwm_stm32_tim.h"
@@ -50,11 +50,6 @@ const lego_fw_info_t __attribute__((section(".fw_info"), used)) fw_info = {
     // via the 'firmware' MicroPython module on the hub.
     .id_string = "LEGO Technic Small Hub(0x000D)",
     .reserved2 = NULL,
-};
-
-enum {
-    COUNTER_PORT_A,
-    COUNTER_PORT_B,
 };
 
 enum {
@@ -175,9 +170,9 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef *hi2c) {
 
         for (int i = 0; i < 10; i++) {
             HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_SET);
-            pbdrv_clock_delay_us(1);
+            pbdrv_clock_busy_delay_us(1);
             HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_RESET);
-            pbdrv_clock_delay_us(1);
+            pbdrv_clock_busy_delay_us(1);
         }
 
         // then configure for normal use
@@ -220,48 +215,51 @@ void EXTI15_10_IRQHandler(void) {
 
 // I/O ports
 
-const pbdrv_legodev_pup_ext_platform_data_t pbdrv_legodev_pup_ext_platform_data[PBDRV_CONFIG_LEGODEV_PUP_NUM_EXT_DEV] = {
-    {
-        .port_id = PBIO_PORT_ID_A,
-        .ioport_index = 0,
-    },
-    #if PBDRV_CONFIG_LEGODEV_PUP_NUM_EXT_DEV == PBDRV_CONFIG_IOPORT_NUM_DEV
-    {
-        .port_id = PBIO_PORT_ID_B,
-        .ioport_index = 1,
-    },
-    #endif
+const pbdrv_gpio_t pbdrv_ioport_platform_data_vcc_pin = {
+    .bank = GPIOC,
+    .pin = 7,
 };
 
-const pbdrv_ioport_pup_platform_data_t pbdrv_ioport_pup_platform_data = {
-    .port_vcc = { .bank = GPIOC, .pin = 7 },
-    .ports = {
-        {
-            .port_id = PBIO_PORT_ID_A,
-            .motor_driver_index = 0,
-            .uart_driver_index = UART_PORT_A,
-            .pins = {
-                .gpio1 = { .bank = GPIOC, .pin = 1 },
-                .gpio2 = { .bank = GPIOC, .pin = 0 },
-                .uart_buf = { .bank = GPIOB, .pin = 9 },
-                .uart_tx = { .bank = GPIOC, .pin = 12 },
-                .uart_rx = { .bank = GPIOD, .pin = 2 },
-                .uart_alt = GPIO_AF8_UART5,
-            },
+const pbdrv_ioport_platform_data_t pbdrv_ioport_platform_data[PBDRV_CONFIG_IOPORT_NUM_DEV] = {
+    {
+        .port_id = PBIO_PORT_ID_A,
+        .motor_driver_index = 0,
+        .i2c_driver_index = PBDRV_IOPORT_INDEX_NOT_AVAILABLE,
+        .uart_driver_index = UART_PORT_A,
+        .external_port_index = 0,
+        .counter_driver_index = PBDRV_IOPORT_INDEX_NOT_AVAILABLE,
+        .pins = &(pbdrv_ioport_pins_t) {
+            .p5 = { .bank = GPIOC, .pin = 1 },
+            .p6 = { .bank = GPIOC, .pin = 0 },
+            .uart_buf = { .bank = GPIOB, .pin = 9 },
+            .uart_tx = { .bank = GPIOC, .pin = 12 },
+            .uart_rx = { .bank = GPIOD, .pin = 2 },
+            .uart_tx_alt_uart = GPIO_AF8_UART5,
+            .uart_rx_alt_uart = GPIO_AF8_UART5,
         },
-        {
-            .port_id = PBIO_PORT_ID_B,
-            .uart_driver_index = UART_PORT_B,
-            .motor_driver_index = 1,
-            .pins = {
-                .gpio1 = { .bank = GPIOA, .pin = 5 },
-                .gpio2 = { .bank = GPIOA, .pin = 4 },
-                .uart_buf = { .bank = GPIOB, .pin = 8 },
-                .uart_tx = { .bank = GPIOC, .pin = 10 },
-                .uart_rx = { .bank = GPIOC, .pin = 11 },
-                .uart_alt = GPIO_AF7_USART3,
-            },
+        #if PBDRV_CONFIG_UART_DEBUG_FIRST_PORT
+        .supported_modes = PBIO_PORT_MODE_UART,
+        #else // PBDRV_CONFIG_UART_DEBUG_FIRST_PORT
+        .supported_modes = PBIO_PORT_MODE_LEGO_DCM | PBIO_PORT_MODE_UART,
+        #endif
+    },
+    {
+        .port_id = PBIO_PORT_ID_B,
+        .i2c_driver_index = PBDRV_IOPORT_INDEX_NOT_AVAILABLE,
+        .uart_driver_index = UART_PORT_B,
+        .motor_driver_index = 1,
+        .external_port_index = 1,
+        .counter_driver_index = PBDRV_IOPORT_INDEX_NOT_AVAILABLE,
+        .pins = &(pbdrv_ioport_pins_t) {
+            .p5 = { .bank = GPIOA, .pin = 5 },
+            .p6 = { .bank = GPIOA, .pin = 4 },
+            .uart_buf = { .bank = GPIOB, .pin = 8 },
+            .uart_tx = { .bank = GPIOC, .pin = 10 },
+            .uart_rx = { .bank = GPIOC, .pin = 11 },
+            .uart_tx_alt_uart = GPIO_AF7_USART3,
+            .uart_rx_alt_uart = GPIO_AF7_USART3,
         },
+        .supported_modes = PBIO_PORT_MODE_LEGO_DCM | PBIO_PORT_MODE_UART,
     },
 };
 
@@ -439,9 +437,9 @@ void HAL_FMPI2C_MspInit(FMPI2C_HandleTypeDef *hfmpi2c) {
 
     for (int i = 0; i < 10; i++) {
         HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_SET);
-        pbdrv_clock_delay_us(1);
+        pbdrv_clock_busy_delay_us(1);
         HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_RESET);
-        pbdrv_clock_delay_us(1);
+        pbdrv_clock_busy_delay_us(1);
     }
 
     // then configure for normal use
@@ -670,8 +668,13 @@ void HAL_PCD_MspInit(PCD_HandleTypeDef *hpcd) {
 }
 
 void HAL_PCD_MspDeInit(PCD_HandleTypeDef *hpcd) {
-    HAL_NVIC_DisableIRQ(EXTI9_5_IRQn);
     HAL_NVIC_DisableIRQ(OTG_FS_IRQn);
+
+    // The VBUS IRQ remains enabled so that it can still
+    // be triggered if the device is shut down but left
+    // connected to charge. When the charging cable is
+    // disconnected, the IRQ will trigger and lead to the
+    // device fully powering down.
 }
 
 void OTG_FS_IRQHandler(void) {

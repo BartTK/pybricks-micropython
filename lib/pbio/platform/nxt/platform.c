@@ -5,10 +5,13 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <pbdrv/reset.h>
 #include <pbio/button.h>
 #include <pbio/main.h>
+#include <pbio/os.h>
+
 #include <pbsys/core.h>
 #include <pbsys/main.h>
 #include <pbsys/program_stop.h>
@@ -21,56 +24,17 @@
 #include <nxos/drivers/_lcd.h>
 #include <nxos/drivers/_motors.h>
 #include <nxos/drivers/_sensors.h>
-#include <nxos/drivers/_usb.h>
 #include <nxos/drivers/bt.h>
 #include <nxos/drivers/i2c.h>
 #include <nxos/drivers/systick.h>
 #include <nxos/interrupts.h>
 
-#include "../../drv/legodev/legodev_nxt.h"
+const char *pin = "1234";
 
-const pbdrv_legodev_nxt_motor_platform_data_t pbdrv_legodev_nxt_motor_platform_data[PBDRV_CONFIG_LEGODEV_NXT_NUM_MOTOR] = {
-    {
-        .port_id = PBIO_PORT_ID_A,
-        .motor_driver_index = 0,
-    },
-    {
-        .port_id = PBIO_PORT_ID_B,
-        .motor_driver_index = 1,
-    },
-    {
-        .port_id = PBIO_PORT_ID_C,
-        .motor_driver_index = 2,
-    },
-};
-
-const pbdrv_legodev_nxt_sensor_platform_data_t pbdrv_legodev_nxt_sensor_platform_data[PBDRV_CONFIG_LEGODEV_NXT_NUM_SENSOR] = {
-    {
-        .port_id = PBIO_PORT_ID_1,
-    },
-    {
-        .port_id = PBIO_PORT_ID_2,
-    },
-    {
-        .port_id = PBIO_PORT_ID_3,
-    },
-    {
-        .port_id = PBIO_PORT_ID_4,
-    },
-};
-
-
-
-// FIXME: Needs to use a process very similar to pbsys/bluetooth
-static bool bluetooth_connect(void) {
-
-    int port_handle = -1;
-    int connection_handle = -1;
-
+static void legacy_bluetooth_init_blocking(void) {
     nx_bt_init();
 
     char *name = "Pybricks NXT";
-    char *pin = "1234";
     nx_bt_set_friendly_name(name);
 
     nx_display_string("Bluetooth name:\n");
@@ -89,39 +53,63 @@ static bool bluetooth_connect(void) {
 
     nx_bt_set_discoverable(true);
 
-    port_handle = nx_bt_open_port();
-    (void)port_handle;
+    nx_bt_open_port();
+}
+
+// REVISIT: This process waits for the user to connect to the NXT brick with
+// Bluetooth classic (RFCOMM). This allows basic I/O until proper Pybricks USB
+// or Bluetooth classic solutions are implemented. Then this process will be
+// removed.
+static pbio_os_process_t legacy_bluetooth_connect_process;
+
+static pbio_error_t legacy_bluetooth_connect_process_thread(pbio_os_state_t *state, void *context) {
+
+    PBIO_OS_ASYNC_BEGIN(state);
+
+    static pbio_os_timer_t timer;
+
+    static int connection_handle = -1;
 
     while (!nx_bt_stream_opened()) {
-        if (pbsys_status_test(PBIO_PYBRICKS_STATUS_SHUTDOWN_REQUEST)) {
-            return false;
-        }
 
         if (nx_bt_has_dev_waiting_for_pin()) {
-            nx_bt_send_pin(pin);
+            nx_bt_send_pin((char *)pin);
             nx_display_string("Please enter pin.\n");
         } else if (nx_bt_connection_pending()) {
             nx_display_string("Connecting ...\n");
             nx_bt_accept_connection(true);
 
             while ((connection_handle = nx_bt_connection_established()) < 0) {
-                if (pbsys_status_test(PBIO_PYBRICKS_STATUS_SHUTDOWN_REQUEST)) {
-                    return false;
-                }
-
-                pbio_do_one_event();
+                PBIO_OS_AWAIT_MS(state, &timer, 2);
             }
 
             nx_bt_stream_open(connection_handle);
         }
 
-        pbio_do_one_event();
+        PBIO_OS_AWAIT_MS(state, &timer, 100);
     }
 
     nx_display_clear();
     nx_display_cursor_set_pos(0, 0);
 
-    return true;
+    nx_display_string("RFCOMM ready.\n");
+    nx_display_string("Press a key.\n");
+
+    // Receive one character to get going.
+    static uint8_t flush_buf[1];
+    nx_bt_stream_read(flush_buf, sizeof(flush_buf));
+
+    while (nx_bt_stream_data_read() != sizeof(flush_buf)) {
+        PBIO_OS_AWAIT_MS(state, &timer, 2);
+    }
+
+    nx_display_string("Let's code!\n");
+
+    PBIO_OS_ASYNC_END(PBIO_SUCCESS);
+}
+
+bool nx_bt_is_ready(void) {
+    return legacy_bluetooth_connect_process.err == PBIO_SUCCESS;
 }
 
 // Called from assembly code in startup.S
@@ -139,36 +127,22 @@ void SystemInit(void) {
     pbdrv_clock_init();
 
     // TODO: we should be able to convert these to generic pbio drivers and use
-    // pbdrv_init_busy instead of busy waiting for 100ms.
+    // pbio_busy_count_busy instead of busy waiting for 100ms.
     nx__avr_init();
     nx__motors_init();
     nx__lcd_init();
     nx__display_init();
     nx__sensors_init();
-    nx__usb_init();
+    extern void pbdrv_usb_init(void);
+    pbdrv_usb_init();
     nx_i2c_init();
 
     /* Delay a little post-init, to let all the drivers settle down. */
     nx_systick_wait_ms(100);
 
-    // REVISIT: Integrate via pbsys/bluetooth
+    // Blocking Bluetooth setup, then await user connection without blocking,
+    // allowing pbio processes to start even if nothing is connected.
+    legacy_bluetooth_init_blocking();
+    pbio_os_process_start(&legacy_bluetooth_connect_process, legacy_bluetooth_connect_process_thread, NULL);
 
-    // Accept incoming serial connection and get ready to read first byte.
-    if (bluetooth_connect()) {
-        // Receive one character to get going...
-        uint8_t flush_buf[1];
-        nx_display_string("Press a key.\n");
-        nx_bt_stream_read(flush_buf, sizeof(flush_buf));
-
-        while (nx_bt_stream_data_read() != sizeof(flush_buf)) {
-            if (pbsys_status_test(PBIO_PYBRICKS_STATUS_SHUTDOWN_REQUEST)) {
-                goto out;
-            }
-
-            pbio_do_one_event();
-        }
-
-        nx_display_string("Connected. REPL.\n");
-    out:;
-    }
 }

@@ -31,12 +31,11 @@
 #define PYBRICKS_PY_HUBS                        (1)
 #define PYBRICKS_PY_IODEVICES                   (1)
 #define PYBRICKS_PY_IODEVICES_XBOX_CONTROLLER   (0)
-#define PYBRICKS_PY_MEDIA                       (0)
-#define PYBRICKS_PY_MEDIA_EV3DEV                (0)
 #define PYBRICKS_PY_NXTDEVICES                  (0)
 #define PYBRICKS_PY_PARAMETERS                  (1)
 #define PYBRICKS_PY_PARAMETERS_BUTTON           (1)
 #define PYBRICKS_PY_PARAMETERS_ICON             (0)
+#define PYBRICKS_PY_PARAMETERS_IMAGE            (0)
 #define PYBRICKS_PY_DEVICES                     (1)
 #define PYBRICKS_PY_PUPDEVICES                  (1)
 #define PYBRICKS_PY_PUPDEVICES_REMOTE           (1)
@@ -45,13 +44,17 @@
 #define PYBRICKS_PY_ROBOTICS_DRIVEBASE_SPIKE    (0)
 #define PYBRICKS_PY_TOOLS                       (1)
 #define PYBRICKS_PY_TOOLS_HUB_MENU              (0)
+#define PYBRICKS_PY_TOOLS_APP_DATA              (1)
 
 // Pybricks options
 #define PYBRICKS_OPT_COMPILER                   (1)
+#define PYBRICKS_OPT_USE_STACK_END_AS_TOP       (1)
+#define PYBRICKS_OPT_RAW_REPL                   (0)
 #define PYBRICKS_OPT_FLOAT                      (1)
 #define PYBRICKS_OPT_TERSE_ERR                  (0)
-#define PYBRICKS_OPT_EXTRA_MOD                  (1)
+#define PYBRICKS_OPT_EXTRA_LEVEL1               (1)
+#define PYBRICKS_OPT_EXTRA_LEVEL2               (0)
 #define PYBRICKS_OPT_CUSTOM_IMPORT              (1)
 #define PYBRICKS_OPT_NATIVE_MOD                 (0)
 
-#include "../_common_stm32/mpconfigport.h"
+#include "../_common/mpconfigport.h"

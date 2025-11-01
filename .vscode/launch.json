@@ -34,14 +34,6 @@
             "console": "integratedTerminal"
         },
         {
-            "name": "Motor Test EV3",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/tests/motors/run_test.py",
-            "args": ["${file}", "--target", "ev3dev", "--address", "192.168.133.244", "--show"],
-            "console": "integratedTerminal"
-        },
-        {
             "name": "Run via USB REPL",
             "type": "python",
             "request": "launch",
@@ -62,44 +54,6 @@
             "console": "integratedTerminal"
         },
         {
-            "name": "ev3dev-test",
-            "type": "cppdbg",
-            "request": "launch",
-            "cwd": "${workspaceFolder}/micropython/tests",
-            "program": "${workspaceFolder}/bricks/ev3dev/build-test/pybricks-micropython",
-            "args": [
-                "../../tests/ev3dev/brick/battery.py"
-            ],
-            "stopAtEntry": false,
-            "environment": [
-                {"name": "GRX_PLUGIN_PATH", "value": "../../bricks/ev3dev/build-test"},
-                {"name": "GRX_DRIVER", "value": "test"}
-            ],
-            "externalConsole": true,
-            "MIMode": "gdb",
-            "setupCommands": [
-                {
-                    "description": "Enable pretty-printing for gdb",
-                    "text": "-enable-pretty-printing",
-                    "ignoreFailures": true
-                },
-                {
-                    "description": "ignore SIGUSR1",
-                    "text": "handle SIGUSR1 noprint pass"
-                },
-                {
-                    "description": "ignore SIGUSR2",
-                    "text": "handle SIGUSR2 noprint pass"
-                },
-                {
-                    "description": "ignore SIGRT39",
-                    "text": "handle SIGUSR2 noprint pass"
-                }
-            ],
-            "logging": { "engineLogging": true, "trace": true, "traceResponse": true },
-            "preLaunchTask": "build ev3dev-test"
-        },
-        {
             "name": "virtualhub",
             "type": "cppdbg",
             "request": "launch",
@@ -111,8 +65,8 @@
             "cwd": "${workspaceFolder}",
             "environment": [
                 {
-                    "name": "PBIO_TEST_DATA_PARSER",
-                    "value": "./tools/virtual-hub-animator/data_server.py"
+                    "name": "PBIO_TEST_CONNECT_SOCKET",
+                    "value": "true"
                 },
             ],
             "externalConsole": false,
@@ -130,6 +84,13 @@
                 }
             ],
             "preLaunchTask": "build virtualhub"
+        },
+        {
+            "name":"Virtual Hub Animation",
+            "type":"debugpy",
+            "request":"launch",
+            "program":"${workspaceFolder}/lib/pbio/platform/virtual_hub/animation.py",
+            "console":"integratedTerminal"
         },
         {
             "name": "test-pbio",
@@ -182,21 +143,6 @@
             "searchDir": [
                 "${workspaceRoot}/bricks/debug"
             ]
-        },
-        {
-            "name": "(gdb) Attach",
-            "type": "cppdbg",
-            "request": "attach",
-            "program": "${workspaceFolder}/bricks/ev3dev/built-test/pybricks-micropython",
-            "processId": "${command:pickProcess}",
-            "MIMode": "gdb",
-            "setupCommands": [
-                {
-                    "description": "Enable pretty-printing for gdb",
-                    "text": "-enable-pretty-printing",
-                    "ignoreFailures": true
-                }
-            ]
         }
     ],
     "inputs": [
@@ -206,6 +152,10 @@
             "type": "pickString",
             // should match output of `./test-pbio.sh --list-tests`
             "options": [
+                "src/port_lump/test_boost_color_distance_sensor",
+                "src/port_lump/test_boost_interactive_motor",
+                "src/port_lump/test_technic_large_motor",
+                "src/port_lump/test_technic_xl_motor",
                 "drv/bluetooth/test_btstack_run_loop_contiki_timer",
                 "drv/bluetooth/test_btstack_run_loop_contiki_poll",
                 "drv/pwm/test_pwm_get",
@@ -239,10 +189,6 @@
                 "src/trajectory/test_simple_trajectory",
                 "src/trajectory/test_infinite_trajectory",
                 "src/trajectory/test_position_trajectory",
-                "src/uartdev/test_boost_color_distance_sensor",
-                "src/uartdev/test_boost_interactive_motor",
-                "src/uartdev/test_technic_large_motor",
-                "src/uartdev/test_technic_xl_motor",
                 "src/util/test_uuid128_reverse_compare",
                 "src/util/test_uuid128_reverse_copy",
                 "src/util/test_oneshot",

@@ -67,47 +67,18 @@
                 "${workspaceFolder}/bricks/ev3",
                 "${workspaceFolder}/bricks/ev3/build",
                 "${workspaceFolder}/micropython",
+                "${workspaceFolder}/lib/tiam1808",
+                "${workspaceFolder}/lib/tiam1808/tiam1808",
+                "${workspaceFolder}/lib/tiam1808/tiam1808/hw",
+                "${workspaceFolder}/lib/tiam1808/tiam1808/armv5",
+                "${workspaceFolder}/lib/tiam1808/tiam1808/armv5/am1808",
+                "${workspaceFolder}/lib/umm_malloc/src"
             ],
             "defines": [
+                "am1808",
+                "gcc",
                 "MICROPY_MODULE_FROZEN_MPY",
                 "MICROPY_ROM_TEXT_COMPRESSION",
-            ],
-            "compilerArgs": [
-                "-Wall",
-                "-Werror",
-                "-Wextra",
-                "-Wno-unused-parameter",
-                "-Wdouble-promotion",
-                "-nostdlib"
-            ],
-            "cStandard": "c11",
-            "intelliSenseMode": "gcc-arm"
-        },
-        {
-            "name": "ev3rt",
-            "includePath": [
-                "${workspaceFolder}/lib/contiki-core",
-                "${workspaceFolder}/lib/lego",
-                "${workspaceFolder}/lib/lwrb/src/include",
-                "${workspaceFolder}/lib/pbio/include",
-                "${workspaceFolder}/lib/pbio/platform/ev3rt",
-                "${workspaceFolder}",
-                "${workspaceFolder}/bricks/ev3rt",
-                "${workspaceFolder}/bricks/ev3rt/build",
-                "${workspaceFolder}/micropython",
-                "${workspaceFolder}/lib/ev3rt-lib/sdk/common",
-                "${workspaceFolder}/lib/ev3rt-lib",
-                "${workspaceFolder}/lib/ev3rt-lib/include",
-                "${workspaceFolder}/lib/ev3rt-lib/target/ev3_gcc",
-                "${workspaceFolder}/lib/ev3rt-lib/arch/arm_gcc/am1808",
-                "${workspaceFolder}/lib/ev3rt-lib/arch/arm_gcc/common",
-                "${workspaceFolder}/lib/ev3rt-lib/arch/gcc"
-            ],
-            "defines": [
-                "MICROPY_MODULE_FROZEN_MPY",
-                "MICROPY_ROM_TEXT_COMPRESSION",
-                "HSE_VALUE=16000000",
-                "TOPPERS_OMIT_TECS"
             ],
             "compilerArgs": [
                 "-Wall",
@@ -371,37 +342,6 @@
             "intelliSenseMode": "gcc-arm"
         },
         {
-            "name": "ev3dev",
-            "includePath": [
-                "/usr/lib/x86_64-linux-gnu/glib-2.0/include",
-                "/usr/include/glib-2.0",
-                "${workspaceFolder}/bricks/ev3dev",
-                "${workspaceFolder}/bricks/ev3dev/build",
-                "${workspaceFolder}/lib/contiki-core",
-                "${workspaceFolder}/lib/ev3dev/include",
-                "${workspaceFolder}/lib/lego",
-                "${workspaceFolder}/lib/lwrb/src/include",
-                "${workspaceFolder}/lib/pbio",
-                "${workspaceFolder}/lib/pbio/include",
-                "${workspaceFolder}/lib/pbio/platform/ev3dev_stretch",
-                "${workspaceFolder}/micropython/ports/unix",
-                "${workspaceFolder}/micropython",
-                "${workspaceFolder}"
-            ],
-            "defines": [
-                "UNIX",
-                "MICROPY_USE_READLINE=1",
-                "MICROPY_QSTR_EXTRA_POOL=mp_qstr_frozen_const_pool",
-                "MICROPY_MODULE_FROZEN_MPY",
-                "MPZ_DIG_SIZE=16",
-                "MICROPY_MODULE_FROZEN_STR"
-
-            ],
-            "compilerPath": "/usr/bin/gcc",
-            "cStandard": "c11",
-            "intelliSenseMode": "gcc-x64"
-        },
-        {
             "name": "virtualhub",
             "includePath": [
                 "${workspaceFolder}/bricks/virtualhub",
@@ -429,7 +369,6 @@
         {
             "name": "pbio/test",
             "includePath": [
-                "${workspaceFolder}/micropython/lib/tinytest",
                 "${workspaceFolder}/lib/btstack/chipset/cc256x",
                 "${workspaceFolder}/lib/btstack/platform/posix",
                 "${workspaceFolder}/lib/btstack/src",
@@ -440,7 +379,8 @@
                 "${workspaceFolder}/lib/pbio/include",
                 "${workspaceFolder}/lib/pbio/platform/test",
                 "${workspaceFolder}/lib/pbio/test",
-                "${workspaceFolder}/lib/pbio/test/build"
+                "${workspaceFolder}/lib/pbio/test/build",
+                "${workspaceFolder}/lib/tinytest"
             ],
             "defines": [
                 "UNIX"

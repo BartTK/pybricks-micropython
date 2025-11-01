@@ -19,9 +19,11 @@ void pbio_test_button_set_pressed(pbio_button_flags_t flags) {
 void pbdrv_button_init(void) {
 }
 
-pbio_error_t pbdrv_button_is_pressed(pbio_button_flags_t *pressed) {
-    *pressed = pbio_test_button_flags;
-    return PBIO_SUCCESS;
+void pbdrv_button_deinit(void) {
+}
+
+pbio_button_flags_t pbdrv_button_get_pressed(void) {
+    return pbio_test_button_flags;
 }
 
 #endif // PBDRV_CONFIG_BUTTON_TEST

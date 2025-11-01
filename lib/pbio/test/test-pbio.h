@@ -6,8 +6,11 @@
 
 #include <stdint.h>
 
+#include <contiki.h>
+
 #include <pbio/button.h>
 #include <pbio/int_math.h>
+#include <pbio/main.h>
 
 // Use this macro to define tests that _don't_ require a Contiki event loop
 #define PBIO_TEST(name) \
@@ -15,9 +18,22 @@
 
 // Use this macro to define tests that _do_ require a Contiki event loop
 #define PBIO_PT_THREAD_TEST(name) \
-    { #name, pbio_test_run_thread, TT_FORK, &pbio_test_setup, name }
+    { #name, pbio_test_run_thread_without_pbio_processes, TT_FORK, &pbio_test_setup, name }
 
-void pbio_test_run_thread(void *env);
+// Use this macro to define tests that _do_ require a Contiki event loop
+// with pbio processes enabled
+#define PBIO_PT_THREAD_TEST_WITH_PBIO(name) \
+    { #name, pbio_test_run_thread_with_pbio_processes, TT_FORK, &pbio_test_setup, name }
+
+// Use this macro to define tests that _do_ require a pbio os event loop
+// with pbio processes enabled
+#define PBIO_PT_THREAD_TEST_WITH_PBIO_OS(name) \
+    { #name, pbio_test_run_thread_with_pbio_os_processes, TT_FORK, &pbio_test_setup, name }
+
+void pbio_test_run_thread_with_pbio_os_processes(void *env); // new thread format
+void pbio_test_run_thread_with_pbio_processes(void *env); // legacy thread format
+void pbio_test_run_thread_without_pbio_processes(void *env);
+
 extern struct testcase_setup_t pbio_test_setup;
 
 // these can be used by tests that use the bluetooth driver
@@ -56,6 +72,11 @@ void pbio_test_counter_set_abs_angle(int32_t millidegrees);
         pbio_test_clock_tick(1); \
         PT_YIELD(pt); \
     }
+
+static inline void pbio_handle_pending_events(void) {
+    while (process_run()) {
+    }
+}
 
 #define pbio_test_int_is_close(value, target, tolerance) (pbio_int_math_abs((value) - (target)) <= (tolerance))
 

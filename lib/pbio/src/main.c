@@ -8,83 +8,103 @@
 
 #include <stdbool.h>
 
-#include <contiki.h>
-
-#include <pbdrv/button.h>
-#include <pbdrv/config.h>
-#include <pbdrv/core.h>
+#include <pbdrv/bluetooth.h>
+#include <pbdrv/display.h>
 #include <pbdrv/sound.h>
-#include <pbio/config.h>
-#include <pbio/dcmotor.h>
+
+#include <pbio/battery.h>
+#include <pbio/image.h>
 #include <pbio/imu.h>
-#include <pbio/light_matrix.h>
-#include <pbio/light.h>
-#include <pbio/main.h>
+#include <pbio/light_animation.h>
 #include <pbio/motor_process.h>
-
-#include "light/animation.h"
-#include "processes.h"
-
-// DO NOT ADD NEW PROCESSES HERE!
-// We are trying to remove the use of autostart.
-AUTOSTART_PROCESSES(
-#if PBDRV_CONFIG_ADC
-    &pbdrv_adc_process,
-#endif
-    NULL);
+#include <pbio/port_interface.h>
 
 /**
  * Initialize the Pybricks I/O Library. This function must be called once,
  * usually at the beginning of a program, before using any other functions in
  * the library.
+ *
+ * @param [in]  start_processes  Whether to start all user-level background
+ *                               processes. This is always enabled, except in
+ *                               tests that test one driver at a time.
  */
-void pbio_init(void) {
-    pbdrv_init();
+void pbio_init(bool start_processes) {
 
-    // TODO: remove autostart - this currently starts legacy drivers like analog
-    // it has to be after pbdrv_init() but before anything else
-    autostart_start(autostart_processes);
-
-    #if PBIO_CONFIG_MOTOR_PROCESS_AUTO_START
-    pbio_motor_process_start();
-    #endif
-
+    pbio_battery_init();
     pbio_imu_init();
-}
 
-/**
- * Stops all user-level background processes. Drivers and OS-level processes
- * continue running.
- *
- * @param [in]  reset  Whether to reset all user-level processes to a clean
- *                     state (true), or whether to only stop active outputs
- *                     like sound or motors (false). The latter is useful
- *                     to preserve the state for debugging, without sound
- *                     or movement getting in the way or out of control.
- */
-void pbio_stop_all(bool reset) {
-    #if PBIO_CONFIG_LIGHT
-    if (reset) {
-        pbio_light_animation_stop_all();
+    if (!start_processes) {
+        return;
     }
-    #endif
-    pbio_dcmotor_stop_all(reset);
-    pbdrv_sound_stop();
+
+    // This will also initialize the dcmotor and servo pbio object instances.
+    pbio_port_init();
+
+    // Can the motor process after ports initialized above.
+    pbio_motor_process_start();
 }
 
 /**
- * Checks for and performs pending background tasks.
- *
- * This function is meant to be called as frequently as possible. To conserve
- * power, you can wait for an interrupt after all events have been processed
- * (i.e. return value is 0).
- *
- * Important!!! This function must not be called recursively.
- *
- * @return      The number of still-pending events.
+ * Deinitialize pbio modules that are not needed after soft-poweroff.
  */
-int pbio_do_one_event(void) {
-    return process_run();
+void pbio_deinit(void) {
+    // Power off sensors and motors, including the ones that are always powered.
+    pbio_port_power_off();
+}
+
+/**
+ * Stops resources like motors or sounds or peripheral procedures that take a
+ * long time.
+ *
+ * Useful to get the system in a safe state for the user without doing a full
+ * reset. Applications can all this to enter a user debug mode like the
+ * MicroPython REPL.
+ */
+void pbio_main_soft_stop(void) {
+
+    pbio_port_stop_user_actions(false);
+
+    pbdrv_sound_stop();
+
+    pbdrv_bluetooth_cancel_operation_request();
+}
+
+/**
+ * Stops all application-level background processes. Called when the user
+ * application completes to get these modules back into their default state.
+ * Drivers and OS-level processes continue running.
+ *
+ * @return   ::PBIO_SUCCESS when completed
+ *           ::PBIO_ERROR_TIMEDOUT if it could not stop processes in a reasonable
+ *             amount of time.
+ */
+pbio_error_t pbio_main_stop_application_resources(void) {
+
+    pbio_port_stop_user_actions(true);
+    pbio_main_soft_stop();
+
+    pbio_error_t err;
+    pbio_os_state_t state = 0;
+    pbio_os_timer_t timer;
+    pbio_os_timer_set(&timer, 5000);
+
+    // Run event loop until Bluetooth is idle or times out.
+    while ((err = pbdrv_bluetooth_close_user_tasks(&state, &timer)) == PBIO_ERROR_AGAIN) {
+        pbio_os_run_processes_and_wait_for_event();
+    }
+
+    #if PBIO_CONFIG_LIGHT
+    pbio_light_animation_stop_all();
+    #endif
+
+    #if PBDRV_CONFIG_DISPLAY
+    pbio_image_fill(pbdrv_display_get_image(), 0);
+    pbdrv_display_update();
+    #endif
+
+    pbio_os_run_processes_and_wait_for_event();
+
+    return err;
 }
 
 /** @} */

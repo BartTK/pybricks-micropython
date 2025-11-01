@@ -10,9 +10,7 @@
 
 #include "py/obj.h"
 
-#include <pbdrv/legodev.h>
 
-#include <pbdrv/legodev.h>
 #include <pybricks/common/pb_type_device.h>
 
 extern const mp_obj_type_t pb_type_pupdevices_ColorDistanceSensor;
@@ -27,7 +25,6 @@ extern const mp_obj_type_t pb_type_pupdevices_TiltSensor;
 extern const mp_obj_type_t pb_type_pupdevices_UltrasonicSensor;
 
 pb_type_device_obj_base_t *pupdevices_ColorDistanceSensor__get_device(mp_obj_t obj);
-void pb_type_lwp3device_start_cleanup(void);
 
 #endif // PYBRICKS_PY_PUPDEVICES
 

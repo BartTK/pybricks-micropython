@@ -48,7 +48,7 @@ int32_t pbio_control_settings_ctl_to_app(const pbio_control_settings_t *s, int32
 }
 
 /**
- * Converts position-like control units to application-specific units.
+ * Converts position-like control units to application-specific units (integer).
  *
  * This can be used with large inputs but there is more overhead.
  *
@@ -58,6 +58,17 @@ int32_t pbio_control_settings_ctl_to_app(const pbio_control_settings_t *s, int32
  */
 int32_t pbio_control_settings_ctl_to_app_long(const pbio_control_settings_t *s, const pbio_angle_t *input) {
     return pbio_angle_to_low_res(input, s->ctl_steps_per_app_step);
+}
+
+/**
+ * Converts position-like control units to application-specific units (float).
+ *
+ * @param [in] s              Control settings containing the scale.
+ * @param [in] input          Signal in control units.
+ * @return                    Signal in application units.
+ */
+float pbio_control_settings_ctl_to_app_long_float(const pbio_control_settings_t *s, const pbio_angle_t *input) {
+    return pbio_angle_to_low_res_float(input, s->ctl_steps_per_app_step);
 }
 
 /**
@@ -152,17 +163,6 @@ int32_t pbio_control_settings_div_by_gain(int32_t value, int32_t gain) {
  */
 int32_t pbio_control_settings_mul_by_loop_time(int32_t input) {
     return input / (1000 / PBIO_CONFIG_CONTROL_LOOP_TIME_MS);
-}
-
-/**
- * Checks if a time sample is equal to or newer than a given base time stamp.
- *
- * @param [in] sample         Sample time.
- * @param [in] base           Base time to compare to.
- * @return                    True if sample time is equal to or newer than base time, else false.
- */
-bool pbio_control_settings_time_is_later(uint32_t sample, uint32_t base) {
-    return sample - base < UINT32_MAX / 2;
 }
 
 /**

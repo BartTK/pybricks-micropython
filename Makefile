@@ -28,47 +28,15 @@ doc:
 clean-doc:
 	@$(MAKE) -C lib/pbio/doc clean
 
-all: movehub cityhub technichub primehub essentialhub virtualhub nxt debug ev3rt doc
+all: movehub cityhub technichub primehub essentialhub virtualhub nxt ev3 doc
 
-clean-all: clean-movehub clean-cityhub clean-technichub clean-primehub clean-essentialhub clean-virtualhub clean-nxt clean-debug clean-ev3rt clean-doc
+clean-all: clean-movehub clean-cityhub clean-technichub clean-primehub clean-essentialhub clean-virtualhub clean-nxt clean-ev3 clean-doc
 
-ifeq ($(HOST_OS),Linux)
+ev3: mpy-cross
+	@$(MAKE) -C bricks/ev3
 
-ev3dev-host: mpy-cross
-	@$(MAKE) -C bricks/ev3dev CROSS_COMPILE=
-
-clean-ev3dev-host: clean-mpy-cross
-	@$(MAKE) -C bricks/ev3dev clean CROSS_COMPILE=
-
-else
-
-ev3dev-host:
-	$(error Building ev3dev for host OS only works on Linux)
-
-clean-ev3dev-host: ev3dev-host
-
-endif
-
-ev3dev-armel:
-	@if [ ! -d bricks/ev3dev/build-armel/ports ]; then \
-		bricks/ev3dev/docker/setup.sh armel; \
-	fi
-	@docker start pybricks-ev3dev_armel
-	@docker exec --tty pybricks-ev3dev_armel make -C ../../micropython/mpy-cross CROSS_COMPILE= -j`nproc`
-	@docker exec --tty pybricks-ev3dev_armel make -j`nproc`
-
-clean-ev3dev-armel:
-	@if [ -d bricks/ev3dev/build-armel/ports ]; then \
-		@docker start pybricks-ev3dev_armel; \
-		docker exec --tty pybricks-ev3dev_armel make -C ../../micropython/mpy-cross clean CROSS_COMPILE=; \
-		docker exec --tty pybricks-ev3dev_armel make clean; \
-	fi
-
-ev3rt: mpy-cross
-	@$(MAKE) -C bricks/ev3rt
-
-clean-ev3rt: clean-mpy-cross
-	@$(MAKE) -C bricks/ev3rt clean
+clean-ev3: clean-mpy-cross
+	@$(MAKE) -C bricks/ev3 clean
 
 movehub: mpy-cross
 	@$(MAKE) -C bricks/movehub
@@ -112,12 +80,6 @@ virtualhub: mpy-cross
 clean-virtualhub: clean-mpy-cross
 	@$(MAKE) -C bricks/virtualhub clean CROSS_COMPILE=
 	@$(MAKE) -C bricks/virtualhub clean DEBUG=1
-
-debug: mpy-cross
-	@$(MAKE) -C bricks/debug build/firmware.dfu
-
-clean-debug: clean-mpy-cross
-	@$(MAKE) -C bricks/debug clean
 
 mpy-cross:
 	@$(MAKE) -C micropython/mpy-cross CROSS_COMPILE=$(HOST_CROSS_COMPILE)

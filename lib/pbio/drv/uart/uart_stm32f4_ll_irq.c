@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2018-2020 The Pybricks Authors
+// Copyright (c) 2018-2025 The Pybricks Authors
 
 // UART driver for STM32F4x using IRQ.
 
@@ -11,149 +11,138 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include <contiki.h>
 #include <contiki-lib.h>
 
 #include <stm32f4xx_ll_rcc.h>
 #include <stm32f4xx_ll_usart.h>
 
 #include <pbdrv/uart.h>
+
+#include <pbio/busy_count.h>
 #include <pbio/error.h>
+#include <pbio/os.h>
 #include <pbio/util.h>
 
-#include "../core.h"
 #include "./uart_stm32f4_ll_irq.h"
-#include "../../src/processes.h"
 
 #define RX_DATA_SIZE 64 // must be power of 2 for ring buffer!
 
-typedef struct {
-    /** Public UART device handle. */
-    pbdrv_uart_dev_t uart_dev;
+struct _pbdrv_uart_dev_t {
     /** Platform-specific data */
     const pbdrv_uart_stm32f4_ll_irq_platform_data_t *pdata;
     /** Circular buffer for caching received bytes. */
     struct ringbuf rx_buf;
     /** Timer for read timeout. */
-    struct etimer read_timer;
+    pbio_os_timer_t read_timer;
     /** Timer for write timeout. */
-    struct etimer write_timer;
-    /** The buffer passed to the read_begin function. */
+    pbio_os_timer_t write_timer;
+    /** The buffer of the ongoing async read function. */
     uint8_t *read_buf;
     /** The length of read_buf in bytes. */
-    uint8_t read_length;
+    uint32_t read_length;
     /** The current position in read_buf. */
-    uint8_t read_pos;
-    /** The buffer passed to the write_begin function. */
-    uint8_t *write_buf;
+    uint32_t read_pos;
+    /** The buffer of the ongoing write function. */
+    const uint8_t *write_buf;
     /** The length of write_buf in bytes. */
-    uint8_t write_length;
+    uint32_t write_length;
     /** The current position in write_buf. */
-    volatile uint8_t write_pos;
-} pbdrv_uart_t;
+    volatile uint32_t write_pos;
+};
 
-static pbdrv_uart_t pbdrv_uart[PBDRV_CONFIG_UART_STM32F4_LL_IRQ_NUM_UART];
+static pbdrv_uart_dev_t uart_devs[PBDRV_CONFIG_UART_STM32F4_LL_IRQ_NUM_UART];
 static uint8_t pbdrv_uart_rx_data[PBDRV_CONFIG_UART_STM32F4_LL_IRQ_NUM_UART][RX_DATA_SIZE];
 
-PROCESS(pbdrv_uart_process, "UART");
-
-pbio_error_t pbdrv_uart_get(uint8_t id, pbdrv_uart_dev_t **uart_dev) {
+pbio_error_t pbdrv_uart_get_instance(uint8_t id, pbdrv_uart_dev_t **uart_dev) {
     if (id >= PBDRV_CONFIG_UART_STM32F4_LL_IRQ_NUM_UART) {
         return PBIO_ERROR_INVALID_ARG;
     }
-
-    if (!pbdrv_uart[id].pdata) {
+    pbdrv_uart_dev_t *dev = &uart_devs[id];
+    if (!dev->pdata) {
         // has not been initialized yet
         return PBIO_ERROR_AGAIN;
     }
-
-    *uart_dev = &pbdrv_uart[id].uart_dev;
-
+    *uart_dev = dev;
     return PBIO_SUCCESS;
 }
 
-pbio_error_t pbdrv_uart_read_begin(pbdrv_uart_dev_t *uart_dev, uint8_t *msg, uint8_t length, uint32_t timeout) {
-    pbdrv_uart_t *uart = PBIO_CONTAINER_OF(uart_dev, pbdrv_uart_t, uart_dev);
+pbio_error_t pbdrv_uart_read(pbio_os_state_t *state, pbdrv_uart_dev_t *uart, uint8_t *msg, uint32_t length, uint32_t timeout) {
+
+    PBIO_OS_ASYNC_BEGIN(state);
 
     if (uart->read_buf) {
-        // Another read operation is already in progress.
-        return PBIO_ERROR_AGAIN;
+        return PBIO_ERROR_BUSY;
     }
 
     uart->read_buf = msg;
     uart->read_length = length;
     uart->read_pos = 0;
 
-    etimer_set(&uart->read_timer, timeout);
-
-    return PBIO_SUCCESS;
-}
-
-pbio_error_t pbdrv_uart_read_end(pbdrv_uart_dev_t *uart_dev) {
-    pbdrv_uart_t *uart = PBIO_CONTAINER_OF(uart_dev, pbdrv_uart_t, uart_dev);
-
-    // If read_pos is less that read_length then we have not read everything yet
-    if (uart->read_pos < uart->read_length) {
-        if (etimer_expired(&uart->read_timer)) {
-            uart->read_buf = NULL;
-            return PBIO_ERROR_TIMEDOUT;
-        }
-        return PBIO_ERROR_AGAIN;
+    if (timeout) {
+        pbio_os_timer_set(&uart->read_timer, timeout);
     }
 
-    etimer_stop(&uart->read_timer);
+    // Await completion or timeout.
+    PBIO_OS_AWAIT_UNTIL(state, ({
+        // On every re-entry to the async read, drain the ring buffer
+        // into the current read buffer. This ensures that we use
+        // all available data if there have been multiple polls since our last
+        // re-entry. If there is already enough data in the buffer, this
+        // protothread completes right away without yielding once first.
+        while (uart->read_pos < uart->read_length) {
+            int c = ringbuf_get(&uart->rx_buf);
+            if (c == -1) {
+                break;
+            }
+            uart->read_buf[uart->read_pos++] = c;
+        }
+        uart->read_pos == uart->read_length || (timeout && pbio_os_timer_is_expired(&uart->read_timer));
+    }));
 
-    return PBIO_SUCCESS;
+    uart->read_buf = NULL;
+
+    if (timeout && pbio_os_timer_is_expired(&uart->read_timer)) {
+        return PBIO_ERROR_TIMEDOUT;
+    }
+
+    PBIO_OS_ASYNC_END(PBIO_SUCCESS);
 }
 
-void pbdrv_uart_read_cancel(pbdrv_uart_dev_t *uart_dev) {
-    // TODO
-}
+pbio_error_t pbdrv_uart_write(pbio_os_state_t *state, pbdrv_uart_dev_t *uart, const uint8_t *msg, uint32_t length, uint32_t timeout) {
 
-pbio_error_t pbdrv_uart_write_begin(pbdrv_uart_dev_t *uart_dev, uint8_t *msg, uint8_t length, uint32_t timeout) {
-    pbdrv_uart_t *uart = PBIO_CONTAINER_OF(uart_dev, pbdrv_uart_t, uart_dev);
+    PBIO_OS_ASYNC_BEGIN(state);
 
     if (uart->write_buf) {
-        // Another write operation is already in progress.
-        return PBIO_ERROR_AGAIN;
+        return PBIO_ERROR_BUSY;
     }
 
     uart->write_buf = msg;
     uart->write_length = length;
     uart->write_pos = 0;
 
-    etimer_set(&uart->write_timer, timeout);
+    if (timeout) {
+        pbio_os_timer_set(&uart->write_timer, timeout);
+    }
 
     LL_USART_EnableIT_TXE(uart->pdata->uart);
 
-    return PBIO_SUCCESS;
-}
+    // Await completion or timeout.
+    PBIO_OS_AWAIT_UNTIL(state, uart->write_pos == uart->write_length || (timeout && pbio_os_timer_is_expired(&uart->write_timer)));
 
-pbio_error_t pbdrv_uart_write_end(pbdrv_uart_dev_t *uart_dev) {
-    pbdrv_uart_t *uart = PBIO_CONTAINER_OF(uart_dev, pbdrv_uart_t, uart_dev);
+    uart->write_buf = NULL;
 
-    // If write_pos is less that write_length then we have not written everything yet.
-    if (uart->write_pos < uart->write_length) {
-        if (etimer_expired(&uart->write_timer)) {
-            LL_USART_DisableIT_TXE(uart->pdata->uart);
-            LL_USART_DisableIT_TC(uart->pdata->uart);
-            uart->write_buf = NULL;
-            return PBIO_ERROR_TIMEDOUT;
-        }
-        return PBIO_ERROR_AGAIN;
+    // Set exit status based on completion condition.
+    if ((timeout && pbio_os_timer_is_expired(&uart->write_timer))) {
+        LL_USART_DisableIT_TXE(uart->pdata->uart);
+        LL_USART_DisableIT_TC(uart->pdata->uart);
+        return PBIO_ERROR_TIMEDOUT;
     }
 
-    etimer_stop(&uart->write_timer);
-
-    return PBIO_SUCCESS;
+    PBIO_OS_ASYNC_END(PBIO_SUCCESS);
 }
 
-void pbdrv_uart_write_cancel(pbdrv_uart_dev_t *uart_dev) {
-    // TODO
-}
+void pbdrv_uart_set_baud_rate(pbdrv_uart_dev_t *uart, uint32_t baud) {
 
-void pbdrv_uart_set_baud_rate(pbdrv_uart_dev_t *uart_dev, uint32_t baud) {
-    pbdrv_uart_t *uart = PBIO_CONTAINER_OF(uart_dev, pbdrv_uart_t, uart_dev);
     USART_TypeDef *USARTx = uart->pdata->uart;
     uint32_t periphclk = LL_RCC_PERIPH_FREQUENCY_NO;
     LL_RCC_ClocksTypeDef rcc_clocks;
@@ -178,17 +167,33 @@ void pbdrv_uart_set_baud_rate(pbdrv_uart_dev_t *uart_dev, uint32_t baud) {
     LL_USART_SetBaudRate(USARTx, periphclk, LL_USART_OVERSAMPLING_16, baud);
 }
 
-void pbdrv_uart_flush(pbdrv_uart_dev_t *uart_dev) {
+void pbdrv_uart_flush(pbdrv_uart_dev_t *uart) {
+    // If a process was exited while an operation was in progress this is
+    // normally an error, and the process may call flush when it is restarted
+    // to clear the state.
+    uart->write_buf = NULL;
+    uart->write_length = 0;
+    uart->write_pos = 0;
+    uart->read_buf = NULL;
+    uart->read_length = 0;
+    uart->read_pos = 0;
+    // Discard all received bytes.
+    while (ringbuf_get(&uart->rx_buf) != -1) {
+        ;
+    }
 }
 
 void pbdrv_uart_stm32f4_ll_irq_handle_irq(uint8_t id) {
-    pbdrv_uart_t *uart = &pbdrv_uart[id];
+    pbdrv_uart_dev_t *uart = &uart_devs[id];
     USART_TypeDef *USARTx = uart->pdata->uart;
     uint32_t sr = USARTx->SR;
 
     if (sr & USART_SR_RXNE) {
         ringbuf_put(&uart->rx_buf, LL_USART_ReceiveData8(USARTx));
-        process_poll(&pbdrv_uart_process);
+        // Poll parent process for each received byte, since the IRQ handler
+        // has no awareness of the expected length of the read operation.
+        pbio_os_request_poll();
+
     }
 
     if (sr & USART_SR_ORE) {
@@ -196,73 +201,36 @@ void pbdrv_uart_stm32f4_ll_irq_handle_irq(uint8_t id) {
         LL_USART_ReceiveData8(USARTx);
     }
 
-    if (USARTx->CR1 & USART_CR1_TXEIE && sr & USART_SR_TXE) {
+    if (USARTx->CR1 & USART_CR1_TXEIE && sr & USART_SR_TXE && uart->write_buf) {
         LL_USART_TransmitData8(USARTx, uart->write_buf[uart->write_pos++]);
         // When all bytes have been written, wait for the Tx complete interrupt.
         if (uart->write_pos == uart->write_length) {
             LL_USART_DisableIT_TXE(USARTx);
             LL_USART_EnableIT_TC(USARTx);
         }
+        // No need to poll parent process here: the interrupts will keep it
+        // going until the whole buffer has been written out. The completion
+        // event below will trigger the poll parent process.
     }
 
     if (USARTx->CR1 & USART_CR1_TCIE && sr & USART_SR_TC) {
         LL_USART_DisableIT_TC(USARTx);
-        process_poll(&pbdrv_uart_process);
+        // Poll parent process to indicate the write operation is complete.
+        pbio_os_request_poll();
     }
 }
 
-static void handle_poll(void) {
-    for (int i = 0; i < PBDRV_CONFIG_UART_STM32F4_LL_IRQ_NUM_UART; i++) {
-        pbdrv_uart_t *uart = &pbdrv_uart[i];
-
-        // if receive is pending and we have not received all bytes yet
-        while (uart->read_buf && uart->read_pos < uart->read_length) {
-            int c = ringbuf_get(&uart->rx_buf);
-            if (c == -1) {
-                break;
-            }
-            uart->read_buf[uart->read_pos++] = c;
-        }
-
-        // broadcast when read_buf is full
-        if (uart->read_buf && uart->read_pos == uart->read_length) {
-            // clearing read_buf to prevent multiple broadcasts
-            uart->read_buf = NULL;
-            process_post(PROCESS_BROADCAST, PROCESS_EVENT_COM, NULL);
-        }
-
-        // broadcast when write_buf is drained
-        if (uart->write_buf && uart->write_pos == uart->write_length) {
-            // clearing write_buf to prevent multiple broadcasts
-            uart->write_buf = NULL;
-            process_post(PROCESS_BROADCAST, PROCESS_EVENT_COM, NULL);
-        }
-    }
-}
-
-static void handle_exit(void) {
-    for (int i = 0; i < PBDRV_CONFIG_UART_STM32F4_LL_IRQ_NUM_UART; i++) {
-        const pbdrv_uart_stm32f4_ll_irq_platform_data_t *pdata = &pbdrv_uart_stm32f4_ll_irq_platform_data[i];
-        LL_USART_Disable(pdata->uart);
-        NVIC_DisableIRQ(pdata->irq);
-    }
+void pbdrv_uart_stop(pbdrv_uart_dev_t *uart) {
+    LL_USART_Disable(uart->pdata->uart);
+    NVIC_DisableIRQ(uart->pdata->irq);
 }
 
 void pbdrv_uart_init(void) {
-    pbdrv_init_busy_up();
-    process_start(&pbdrv_uart_process);
-}
-
-PROCESS_THREAD(pbdrv_uart_process, ev, data) {
-    PROCESS_POLLHANDLER(handle_poll());
-    PROCESS_EXITHANDLER(handle_exit());
-
-    PROCESS_BEGIN();
 
     for (int i = 0; i < PBDRV_CONFIG_UART_STM32F4_LL_IRQ_NUM_UART; i++) {
         const pbdrv_uart_stm32f4_ll_irq_platform_data_t *pdata = &pbdrv_uart_stm32f4_ll_irq_platform_data[i];
         uint8_t *rx_data = pbdrv_uart_rx_data[i];
-        pbdrv_uart_t *uart = &pbdrv_uart[i];
+        pbdrv_uart_dev_t *uart = &uart_devs[i];
         uart->pdata = pdata;
         ringbuf_init(&uart->rx_buf, rx_data, RX_DATA_SIZE);
 
@@ -286,14 +254,6 @@ PROCESS_THREAD(pbdrv_uart_process, ev, data) {
         // start receiving as soon as everything is configured
         LL_USART_Enable(pdata->uart);
     }
-
-    pbdrv_init_busy_down();
-
-    while (true) {
-        PROCESS_WAIT_EVENT();
-    }
-
-    PROCESS_END();
 }
 
 #endif // PBDRV_CONFIG_UART_STM32F4_LL_IRQ

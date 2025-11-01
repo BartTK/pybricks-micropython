@@ -103,6 +103,17 @@ int32_t pbio_int_math_bind(int32_t value, int32_t min, int32_t max) {
 }
 
 /**
+ * Tests whether a value is close to a reference value within a range.
+ *
+ * @param [in]  value   The value to test.
+ * @param [in]  ref     The reference value.
+ * @param [in]  range   The one-sided range. If exactly on range, it is considered close.
+ */
+bool pbio_int_math_is_close(int32_t value, int32_t ref, int32_t range) {
+    return pbio_int_math_abs(value - ref) <= range;
+}
+
+/**
  * Clamps a value to a +/- limit.
  *
  * If @p value is greater than positive @p abs_max, then positive @p abs_max is
@@ -144,14 +155,6 @@ int32_t pbio_int_math_sqrt(int32_t n) {
 }
 
 /**
- * Points on a curve for linear interpolation.
- */
-typedef struct {
-    int16_t x;
-    int16_t y;
-} point_t;
-
-/**
  * Sample points along the curve y = atan(x / 1024) * 8.
  *
  * This is used to get the atan2(b, a) curve in the first quadrant. The
@@ -160,7 +163,7 @@ typedef struct {
  * x = Ratios b / a, upscaled by 1024.
  * y = Matching atan(b / b) output, upscaled by 8 * 180 / pi (eighth of a degree).
  */
-static const point_t atan_points[] = {
+static const pbio_int_math_point_t atan_points[] = {
     { .x = 0, .y = 0 },
     { .x = 409, .y = 178 },
     { .x = 972, .y = 348 },
@@ -185,7 +188,7 @@ static const point_t atan_points[] = {
  * @param [in]   x       Value for which to estimate y = f(x)
  * @return               Estimated value for y = f(x)
  */
-static int32_t pbio_int_math_interpolate(const point_t *points, size_t len, int32_t x) {
+int32_t pbio_int_math_interpolate(const pbio_int_math_point_t *points, size_t len, int32_t x) {
 
     // If x is below the minimum x, return the minimum y.
     if (x < points[0].x) {
@@ -194,8 +197,8 @@ static int32_t pbio_int_math_interpolate(const point_t *points, size_t len, int3
 
     // Find nearest match and interpolate.
     for (size_t i = 0; i < len - 1; i++) {
-        const point_t *p0 = &points[i];
-        const point_t *p1 = &points[i + 1];
+        const pbio_int_math_point_t *p0 = &points[i];
+        const pbio_int_math_point_t *p1 = &points[i + 1];
 
         if (x < p1->x) {
             return p0->y + (x - p0->x) * (p1->y - p0->y) / (p1->x - p0->x);
@@ -256,6 +259,8 @@ int32_t pbio_int_math_atan2(int32_t y, int32_t x) {
  *
  * The product of @p a and @p b must not exceed 2**47, and the result after
  * division must not exceed 2**31. @p c must not exceed 2**16.
+ *
+ * Truncates the result as conventional with integer division.
  *
  * Adapted from https://stackoverflow.com/a/57727180, CC BY-SA 4.0
  *

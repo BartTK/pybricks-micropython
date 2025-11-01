@@ -14,8 +14,12 @@
 
 #include <contiki.h>
 
+#include "pbio_os_config.h"
+
+#include <pbdrv/core.h>
+
 #include <pbio/main.h>
-#include <pbdrv/legodev.h>
+#include <pbio/os.h>
 #include <pbsys/core.h>
 #include <pbsys/program_stop.h>
 #include <pbsys/status.h>
@@ -68,12 +72,13 @@ bool pbsys_main_stdin_event(uint8_t c) {
 // MICROPY_PORT_INIT_FUNC
 void pb_virtualhub_port_init(void) {
 
-    pbio_init();
-
+    pbdrv_init();
+    pbio_init(true);
     pbsys_init();
 
     pbsys_status_set(PBIO_PYBRICKS_STATUS_USER_PROGRAM_RUNNING);
-    while (pbio_do_one_event()) {
+
+    while (pbio_os_run_processes_once()) {
     }
 
     pb_package_pybricks_init(true);
@@ -81,66 +86,50 @@ void pb_virtualhub_port_init(void) {
 
 // MICROPY_PORT_DEINIT_FUNC
 void pb_virtualhub_port_deinit(void) {
-
-    pb_package_pybricks_deinit();
 }
 
-// MICROPY_VM_HOOK_LOOP
-void pb_virtualhub_poll(void) {
-    while (pbio_do_one_event()) {
+// Implementation for MICROPY_EVENT_POLL_HOOK
+void pb_event_poll_hook(void) {
+
+    while (pbio_os_run_processes_once()) {
     }
-}
 
-// MICROPY_EVENT_POLL_HOOK
-void pb_virtualhub_event_poll(void) {
-start:
     mp_handle_pending(true);
 
-    int events_handled = 0;
+    pbio_os_run_processes_and_wait_for_event();
+}
 
-    while (pbio_do_one_event()) {
-        events_handled++;
-    }
-
-    // If there were any pbio events handled, don't sleep because there may
-    // be something waiting on one of the events that was just handled.
-    if (events_handled) {
-        return;
-    }
-
+pbio_os_irq_flags_t pbio_os_hook_disable_irq(void) {
     sigset_t sigmask;
     sigfillset(&sigmask);
 
-    // disable "interrupts"
     sigset_t origmask;
     pthread_sigmask(SIG_SETMASK, &sigmask, &origmask);
+    return origmask;
+}
 
-    if (process_nevents()) {
-        // something was scheduled since the event loop above
-        pthread_sigmask(SIG_SETMASK, &origmask, NULL);
-        goto start;
-    }
+void pbio_os_hook_enable_irq(pbio_os_irq_flags_t flags) {
+    sigset_t origmask = (sigset_t)flags;
+    pthread_sigmask(SIG_SETMASK, &origmask, NULL);
+}
 
+void pbio_os_hook_wait_for_interrupt(pbio_os_irq_flags_t flags) {
     struct timespec timeout = {
         .tv_sec = 0,
         .tv_nsec = 100000,
     };
-
     // "sleep" with "interrupts" enabled
+    sigset_t origmask = flags;
     MP_THREAD_GIL_EXIT();
     pselect(0, NULL, NULL, NULL, &timeout, &origmask);
     MP_THREAD_GIL_ENTER();
-
-    // restore "interrupts"
-    pthread_sigmask(SIG_SETMASK, &origmask, NULL);
 }
-
 
 void pb_virtualhub_delay_us(mp_uint_t us) {
     mp_uint_t start = mp_hal_ticks_us();
 
     while (mp_hal_ticks_us() - start < us) {
-        pb_virtualhub_poll();
+        MICROPY_VM_HOOK_LOOP;
     }
 }
 

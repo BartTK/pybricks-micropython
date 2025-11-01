@@ -22,21 +22,18 @@
 #include <pbdrv/adc.h>
 #include <pbdrv/charger.h>
 #include <pbdrv/gpio.h>
-#if PBDRV_CONFIG_CHARGER_MP2639A_MODE_PWM | PBDRV_CONFIG_CHARGER_MP2639A_ISET_PWM
 #include <pbdrv/pwm.h>
-#endif
-#if PBDRV_CONFIG_CHARGER_MP2639A_CHG_RESISTOR_LADDER
 #include <pbdrv/resistor_ladder.h>
-#endif
+#include <pbdrv/usb.h>
+
+#include <pbio/busy_count.h>
 #include <pbio/error.h>
 #include <pbio/util.h>
+#include <pbio/os.h>
 
-#include "../core.h"
 #include "charger_mp2639a.h"
 
 #define platform pbdrv_charger_mp2639a_platform_data
-
-PROCESS(pbdrv_charger_mp2639a_process, "MP2639A");
 
 #if PBDRV_CONFIG_CHARGER_MP2639A_MODE_PWM
 static pbdrv_pwm_dev_t *mode_pwm;
@@ -47,11 +44,6 @@ static pbdrv_pwm_dev_t *iset_pwm;
 
 static pbdrv_charger_status_t pbdrv_charger_status;
 static bool mode_pin_is_low;
-
-void pbdrv_charger_init(void) {
-    pbdrv_init_busy_up();
-    process_start(&pbdrv_charger_mp2639a_process);
-}
 
 pbio_error_t pbdrv_charger_get_current_now(uint16_t *current) {
     pbio_error_t err = pbdrv_adc_get_ch(platform.ib_adc_ch, current);
@@ -70,7 +62,13 @@ pbdrv_charger_status_t pbdrv_charger_get_status(void) {
     return pbdrv_charger_status;
 }
 
-void pbdrv_charger_enable(bool enable, pbdrv_charger_limit_t limit) {
+/**
+ * Enables or disables the charger.
+ *
+ * @param enable    True to enable the charger, false to disable.
+ * @param limit     The current limit to set. Only used on some platforms.
+ */
+static void pbdrv_charger_enable(bool enable, pbdrv_charger_limit_t limit) {
     #if PBDRV_CONFIG_CHARGER_MP2639A_ISET_PWM
 
     // Set the current limit (ISET) based on the type of charger attached.
@@ -117,6 +115,32 @@ void pbdrv_charger_enable(bool enable, pbdrv_charger_limit_t limit) {
 }
 
 /**
+ * Enables the charger if USB is connected, otherwise disables charger.
+ */
+static void pbdrv_charger_enable_if_usb_connected(void) {
+    pbdrv_usb_bcd_t bcd = pbdrv_usb_get_bcd();
+    bool enable = bcd != PBDRV_USB_BCD_NONE;
+    pbdrv_charger_limit_t limit;
+
+    // This battery charger chip will automatically monitor VBUS and
+    // limit the current if the VBUS voltage starts to drop, so these limits
+    // are a bit looser than they could be.
+    switch (bcd) {
+        case PBDRV_USB_BCD_NONE:
+            limit = PBDRV_CHARGER_LIMIT_NONE;
+            break;
+        case PBDRV_USB_BCD_STANDARD_DOWNSTREAM:
+            limit = PBDRV_CHARGER_LIMIT_STD_MAX;
+            break;
+        default:
+            limit = PBDRV_CHARGER_LIMIT_CHARGING;
+            break;
+    }
+
+    pbdrv_charger_enable(enable, limit);
+}
+
+/**
  * Gets the current CHG signal status (inverted compared to /CHG pin state).
  */
 static bool read_chg(void) {
@@ -135,18 +159,41 @@ static bool read_chg(void) {
     #endif
 }
 
-PROCESS_THREAD(pbdrv_charger_mp2639a_process, ev, data) {
-    PROCESS_BEGIN();
+// Sample CHG signal at 4Hz to capture transitions to detect fault condition.
+#define PBDRV_CHARGER_MP2639A_STATUS_SAMPLE_TIME (250)
+
+// After charging for a long time, we disable charging for some time. This
+// matches observed behavior with the LEGO Education SPIKE V3.x firmware.
+//
+// Why? Due to the way the hardware works, the hub cannot be truly turned off
+// while USB is plugged in. As a result, the charger is always on. For some
+// battery-charger pairs, this causes the battery to stop charging normally in
+// hardware when full as intended, automatically starting a new cycle after
+// some time. But in some battery-charger pairs, the charger will reach a
+// timeout state and not restart charging. When leaving such a combination
+// plugged in overnight, it will time out and not be charged in the morning,
+// which is not desirable. For this reason, we pause and restart charging
+// manually if it has been plugged in for a long time.
+#define PBDRV_CHARGER_MP2639A_CHARGE_TIMEOUT_MS (60 * 60 * 1000)
+#define PBDRV_CHARGER_MP2639A_CHARGE_PAUSE_MS (30 * 1000)
+
+static pbio_os_process_t pbdrv_charger_mp2639a_process;
+
+pbio_error_t pbdrv_charger_mp2639a_process_thread(pbio_os_state_t *state, void *context) {
+
+    static pbio_os_timer_t timer;
+
+    PBIO_OS_ASYNC_BEGIN(state);
 
     #if PBDRV_CONFIG_CHARGER_MP2639A_MODE_PWM
     while (pbdrv_pwm_get_dev(platform.mode_pwm_id, &mode_pwm) != PBIO_SUCCESS) {
-        PROCESS_PAUSE();
+        PBIO_OS_AWAIT_ONCE_AND_POLL(state);
     }
     #endif
 
     #if PBDRV_CONFIG_CHARGER_MP2639A_ISET_PWM
     while (pbdrv_pwm_get_dev(platform.iset_pwm_id, &iset_pwm) != PBIO_SUCCESS) {
-        PROCESS_PAUSE();
+        PBIO_OS_AWAIT_ONCE_AND_POLL(state);
     }
     #endif
 
@@ -158,25 +205,30 @@ PROCESS_THREAD(pbdrv_charger_mp2639a_process, ev, data) {
     pbdrv_gpio_input(&platform.chg_gpio);
     #endif
 
-    pbdrv_init_busy_down();
+    pbio_busy_count_down();
 
     // When there is a fault the /CHG pin will toggle on and off at 1Hz, so we
     // have to try to detect that to get 3 possible states out of a digital input.
 
     static bool chg_samples[7];
     static uint8_t chg_index = 0;
-    static struct etimer timer;
-
-    // sample at 4Hz
-    etimer_set(&timer, 250);
+    static uint32_t charge_count = 0;
 
     for (;;) {
-        PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER && etimer_expired(&timer));
-        etimer_restart(&timer);
+        PBIO_OS_AWAIT_MS(state, &timer, PBDRV_CHARGER_MP2639A_STATUS_SAMPLE_TIME);
+
+        // Enable charger chip based on USB state. We don't need to disable it
+        // on charger fault since the chip will automatically disable itself.
+        // If we disable it here we can't detect the fault condition.
+        pbdrv_charger_enable_if_usb_connected();
 
         chg_samples[chg_index] = read_chg();
 
         if (mode_pin_is_low) {
+
+            // Keep track of how long we have been charging.
+            charge_count++;
+
             // Count number of transitions seen during sampling window.
             int transitions = chg_samples[0] != chg_samples[PBIO_ARRAY_SIZE(chg_samples) - 1];
             for (size_t i = 1; i < PBIO_ARRAY_SIZE(chg_samples); i++) {
@@ -195,8 +247,12 @@ PROCESS_THREAD(pbdrv_charger_mp2639a_process, ev, data) {
                     // CHG signal is on (/CHG pin is logic low).
                     pbdrv_charger_status = PBDRV_CHARGER_STATUS_CHARGE;
                 } else {
-                    // CHG signal is off (/CHG pin is logic high).
-                    pbdrv_charger_status = PBDRV_CHARGER_STATUS_COMPLETE;
+                    // CHG signal is off (/CHG pin is logic high). This is only
+                    // valid after a few cycles. Otherwise it always briefly
+                    // appears as if it is full when just plugged in.
+                    pbdrv_charger_status = charge_count > 2 ?
+                        PBDRV_CHARGER_STATUS_COMPLETE :
+                        PBDRV_CHARGER_STATUS_DISCHARGE;
                 }
             }
         } else {
@@ -205,15 +261,29 @@ PROCESS_THREAD(pbdrv_charger_mp2639a_process, ev, data) {
             // devices) requires a momentary pulse on the /PB pin, which is
             // not wired up.
             pbdrv_charger_status = PBDRV_CHARGER_STATUS_DISCHARGE;
+            charge_count = 0;
         }
 
         // Increment sampling index with wrap around.
         if (++chg_index >= PBIO_ARRAY_SIZE(chg_samples)) {
             chg_index = 0;
         }
+
+        // If we have been charging for a long time, pause charging for a while.
+        if (charge_count > (PBDRV_CHARGER_MP2639A_CHARGE_TIMEOUT_MS / PBDRV_CHARGER_MP2639A_STATUS_SAMPLE_TIME)) {
+            pbdrv_charger_status = PBDRV_CHARGER_STATUS_DISCHARGE;
+            pbdrv_charger_enable(false, PBDRV_CHARGER_LIMIT_NONE);
+            PBIO_OS_AWAIT_MS(state, &timer, PBDRV_CHARGER_MP2639A_CHARGE_PAUSE_MS);
+            charge_count = 0;
+        }
     }
 
-    PROCESS_END();
+    PBIO_OS_ASYNC_END(PBIO_SUCCESS);
+}
+
+void pbdrv_charger_init(void) {
+    pbio_busy_count_up();
+    pbio_os_process_start(&pbdrv_charger_mp2639a_process, pbdrv_charger_mp2639a_process_thread, NULL);
 }
 
 #endif // PBDRV_CONFIG_CHARGER_MP2639A

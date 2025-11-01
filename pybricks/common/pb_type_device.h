@@ -8,10 +8,9 @@
 
 #include "py/obj.h"
 
-#include <pbdrv/legodev.h>
 
-#include <pbdrv/legodev.h>
-#include <pybricks/tools/pb_type_awaitable.h>
+#include <pbio/port_lump.h>
+#include <pybricks/tools/pb_type_async.h>
 
 /**
  * Used in place of mp_obj_base_t in all pupdevices. This lets us share
@@ -19,8 +18,8 @@
  */
 typedef struct _pb_type_device_obj_base_t {
     mp_obj_base_t base;
-    pbdrv_legodev_dev_t *legodev;
-    mp_obj_t awaitables;
+    pbio_port_lump_dev_t *lump_dev;
+    pb_type_async_t *last_awaitable;
 } pb_type_device_obj_base_t;
 
 #if PYBRICKS_PY_DEVICES
@@ -34,7 +33,7 @@ typedef struct _pb_type_device_obj_base_t {
  */
 typedef struct {
     mp_obj_base_t base;
-    pb_type_awaitable_return_t get_values;
+    pb_type_async_return_map_t get_values;
     uint8_t mode;
 } pb_type_device_method_obj_t;
 
@@ -58,11 +57,12 @@ extern const mp_obj_type_t pb_type_device_method;
 
 mp_obj_t pb_type_device_method_call(mp_obj_t self_in, size_t n_args, size_t n_kw, const mp_obj_t *args);
 mp_obj_t pb_type_pupdevices_method(mp_obj_t self_in, size_t n_args, size_t n_kw, const mp_obj_t *args);
-pbdrv_legodev_type_id_t pb_type_device_init_class(pb_type_device_obj_base_t *self, mp_obj_t port_in, pbdrv_legodev_type_id_t valid_id);
+lego_device_type_id_t pb_type_device_init_class(pb_type_device_obj_base_t *self, mp_obj_t port_in, lego_device_type_id_t valid_id);
 mp_obj_t pb_type_device_set_data(pb_type_device_obj_base_t *sensor, uint8_t mode, const void *data, uint8_t size);
 void *pb_type_device_get_data(mp_obj_t self_in, uint8_t mode);
-
 void *pb_type_device_get_data_blocking(mp_obj_t self_in, uint8_t mode);
+
+void pb_device_set_lego_mode(pbio_port_t *port);
 
 #endif // PYBRICKS_PY_DEVICES
 

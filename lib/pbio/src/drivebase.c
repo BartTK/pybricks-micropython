@@ -21,7 +21,7 @@ static pbio_drivebase_t drivebases[PBIO_CONFIG_NUM_DRIVEBASES];
 /**
  * Gets the state of the drivebase update loop.
  *
- * This becomes true after a successful call to pbio_drivebase_setup and
+ * This becomes true after a successful call to pbio_drivebase_get_drivebase and
  * becomes false when there is an error. Such as when the cable is unplugged.
  *
  * @param [in]  db          The drivebase instance
@@ -117,11 +117,11 @@ static void drivebase_adopt_settings(pbio_control_settings_t *s_distance, pbio_c
  * Get the physical and estimated state of a drivebase in units of control.
  *
  * @param [in]  db              The drivebase instance
- * @param [out] state_distance  Physical and estimated state of the distance.
- * @param [out] state_heading   Physical and estimated state of the heading.
+ * @param [out] state_distance  Physical and estimated state of the distance based on motor angles.
+ * @param [out] state_heading   Physical and estimated state of the heading based on motor angles.
  * @return                      Error code.
  */
-static pbio_error_t pbio_drivebase_get_state_control(pbio_drivebase_t *db, pbio_control_state_t *state_distance, pbio_control_state_t *state_heading) {
+static pbio_error_t pbio_drivebase_get_state_via_motors(pbio_drivebase_t *db, pbio_control_state_t *state_distance, pbio_control_state_t *state_heading) {
 
     // Get left servo state
     pbio_control_state_t state_left;
@@ -150,9 +150,41 @@ static pbio_error_t pbio_drivebase_get_state_control(pbio_drivebase_t *db, pbio_
     state_heading->speed_estimate = state_distance->speed_estimate - state_right.speed_estimate;
     state_heading->speed = state_distance->speed - state_right.speed;
 
+    return PBIO_SUCCESS;
+}
+
+/**
+ * Get the physical and estimated state of a drivebase in units of control.
+ *
+ * @param [in]  db              The drivebase instance
+ * @param [out] state_distance  Physical and estimated state of the distance.
+ * @param [out] state_heading   Physical and estimated state of the heading.
+ * @return                      Error code.
+ */
+static pbio_error_t pbio_drivebase_get_state_control(pbio_drivebase_t *db, pbio_control_state_t *state_distance, pbio_control_state_t *state_heading) {
+
+    // Gets the "measured" state according to the driver motors.
+    pbio_error_t err = pbio_drivebase_get_state_via_motors(db, state_distance, state_heading);
+    if (err != PBIO_SUCCESS) {
+        return err;
+    }
+
+    // Subtract distance offset.
+    pbio_angle_diff(&state_distance->position, &db->distance_offset, &state_distance->position);
+    pbio_angle_diff(&state_distance->position_estimate, &db->distance_offset, &state_distance->position_estimate);
+
+    // Subtract heading offset
+    pbio_angle_diff(&state_heading->position, &db->heading_offset, &state_heading->position);
+    pbio_angle_diff(&state_heading->position_estimate, &db->heading_offset, &state_heading->position_estimate);
+
     // Optionally use gyro to override the heading source for more accuracy.
-    if (db->use_gyro) {
-        pbio_imu_get_heading_scaled(&state_heading->position, &state_heading->speed, db->control_heading.settings.ctl_steps_per_app_step);
+    // The gyro manages its own offset, so we don't need to subtract it here.
+    // Note that the heading speed *estimate* is not set here. This value, used
+    // for derivative control, still uses the motor estimate rather than the
+    // gyro speed, to guarantee the same stability properties to stabilize the
+    // motors.
+    if (db->gyro_heading_type != PBIO_IMU_HEADING_TYPE_NONE) {
+        pbio_imu_get_heading_scaled(db->gyro_heading_type, &state_heading->position, &state_heading->speed, db->control_heading.settings.ctl_steps_per_app_step);
     }
 
     return PBIO_SUCCESS;
@@ -235,7 +267,7 @@ static pbio_error_t pbio_drivebase_stop_from_servo(void *drivebase, bool clear_p
 #define ROT_MDEG_OVER_PI (114592) // 360 000 / pi
 
 /**
- * Gets drivebase instance from two servo instances.
+ * Gets and sets up drivebase instance from two servo instances.
  *
  * @param [out] db_address       Drivebase instance if available.
  * @param [in]  left             Left servo instance.
@@ -329,8 +361,14 @@ pbio_error_t pbio_drivebase_get_drivebase(pbio_drivebase_t **db_address, pbio_se
         return PBIO_ERROR_INVALID_ARG;
     }
 
-    // Finish setup. By default, don't use gyro.
-    return pbio_drivebase_set_use_gyro(db, false);
+    // Reset offsets so current distance and angle are 0. This relies on the
+    // geometry, so it is done after the scaling is set.
+    pbio_drivebase_reset(db, 0, 0);
+
+    // By default, don't use gyro for steering control.
+    db->gyro_heading_type = PBIO_IMU_HEADING_TYPE_NONE;
+
+    return PBIO_SUCCESS;
 }
 
 /**
@@ -339,10 +377,15 @@ pbio_error_t pbio_drivebase_get_drivebase(pbio_drivebase_t **db_address, pbio_se
  * This function will stop the drivebase if it is running.
  *
  * @param [in]  db               Drivebase instance.
- * @param [in]  use_gyro         Whether to use the gyro for heading control.
+ * @param [in]  heading_type     Whether to use the gyro for heading control, and if so which type.
  * @return                       Error code.
  */
-pbio_error_t pbio_drivebase_set_use_gyro(pbio_drivebase_t *db, bool use_gyro) {
+pbio_error_t pbio_drivebase_set_use_gyro(pbio_drivebase_t *db, pbio_imu_heading_type_t heading_type) {
+
+    // No need to reset controls if already in correct mode.
+    if (db->gyro_heading_type == heading_type) {
+        return PBIO_SUCCESS;
+    }
 
     // We stop so that new commands will reinitialize the state using the
     // newly selected input for heading control.
@@ -351,7 +394,7 @@ pbio_error_t pbio_drivebase_set_use_gyro(pbio_drivebase_t *db, bool use_gyro) {
         return err;
     }
 
-    db->use_gyro = use_gyro;
+    db->gyro_heading_type = heading_type;
     return PBIO_SUCCESS;
 }
 
@@ -584,6 +627,9 @@ pbio_error_t pbio_drivebase_drive_straight(pbio_drivebase_t *db, int32_t distanc
 /**
  * Starts the drivebase controllers to run by an arc of given radius and angle.
  *
+ * curve() was originally used as a generalization of turn(), but is now
+ * deprecated in favor of the arc methods, which have more practical arguments.
+ *
  * This will use the default speed.
  *
  * @param [in]  db              The drivebase instance.
@@ -602,6 +648,74 @@ pbio_error_t pbio_drivebase_drive_curve(pbio_drivebase_t *db, int32_t radius, in
 
     // Execute the common drive command at default speed (by passing 0 speed).
     return pbio_drivebase_drive_relative(db, arc_length, 0, arc_angle, 0, on_completion);
+}
+
+/**
+ * Starts the drivebase controllers to run by an arc of given radius and angle.
+ *
+ * With a positive radius, the robot drives along a circle to its right.
+ * With a negative radius, the robot drives along a circle to its left.
+ *
+ * A positive angle means driving forward along the circle, negative is reverse.
+ *
+ * This will use the default speed.
+ *
+ * @param [in]  db              The drivebase instance.
+ * @param [in]  radius          Radius of the arc in mm.
+ * @param [in]  angle           The angle to drive along the circle in degrees.
+ * @param [in]  on_completion   What to do when reaching the target.
+ * @return                      Error code.
+ */
+pbio_error_t pbio_drivebase_drive_arc_angle(pbio_drivebase_t *db, int32_t radius, int32_t angle, pbio_control_on_completion_t on_completion) {
+
+    if (pbio_int_math_abs(radius) < 10) {
+        return PBIO_ERROR_INVALID_ARG;
+    }
+
+    // Arc length is radius * angle, with the user angle parameter governing
+    // the drive direction as positive forward.
+    int32_t drive_distance = (10 * angle * pbio_int_math_abs(radius)) / 573;
+
+    // The user angle is positive for going forward, no matter the radius sign.
+    // The internal functions expect positive to mean clockwise for the robot.
+    int32_t direction = (radius > 0) == (angle > 0) ? 1 : -1;
+    int32_t drive_angle = pbio_int_math_abs(angle) * direction;
+
+    // Execute the common drive command at default speed (by passing 0 speed).
+    return pbio_drivebase_drive_relative(db, drive_distance, 0, drive_angle, 0, on_completion);
+}
+
+/**
+ * Starts the drivebase controllers to run by an arc of given radius and arc length.
+ *
+ * With a positive radius, the robot drives along a circle to its right.
+ * With a negative radius, the robot drives along a circle to its left.
+ *
+ * A positive distance means driving forward along the circle, negative is reverse.
+ *
+ * This will use the default speed.
+ *
+ * @param [in]  db              The drivebase instance.
+ * @param [in]  radius          Radius of the arc in mm.
+ * @param [in]  distance        The distance to drive (arc length) in mm.
+ * @param [in]  on_completion   What to do when reaching the target.
+ * @return                      Error code.
+ */
+pbio_error_t pbio_drivebase_drive_arc_distance(pbio_drivebase_t *db, int32_t radius, int32_t distance, pbio_control_on_completion_t on_completion) {
+
+    if (pbio_int_math_abs(radius) < 10) {
+        return PBIO_ERROR_INVALID_ARG;
+    }
+
+    // The internal functions expect positive to mean clockwise for the robot
+    // with respect to the ground, not in relation to any particular circle.
+    int32_t angle = pbio_int_math_abs(distance) * 573 / pbio_int_math_abs(radius) / 10;
+    if ((radius < 0) != (distance < 0)) {
+        angle *= -1;
+    }
+
+    // Execute the common drive command at default speed (by passing 0 speed).
+    return pbio_drivebase_drive_relative(db, distance, 0, angle, 0, on_completion);
 }
 
 /**
@@ -687,6 +801,94 @@ pbio_error_t pbio_drivebase_get_state_user(pbio_drivebase_t *db, int32_t *distan
     return PBIO_SUCCESS;
 }
 
+/**
+ * Gets the drivebase angle in user units. This is the same as the angle
+ * returned by ::pbio_drivebase_get_state_user, but as a floating point value.
+ *
+ * @param [in]  db          The drivebase instance.
+ * @param [out] angle       Angle turned in degrees, floating point.
+ * @return                  Error code.
+ */
+pbio_error_t pbio_drivebase_get_state_user_angle(pbio_drivebase_t *db, float *angle) {
+
+    // Get drive base state
+    pbio_control_state_t state_distance;
+    pbio_control_state_t state_heading;
+    pbio_error_t err = pbio_drivebase_get_state_control(db, &state_distance, &state_heading);
+    if (err != PBIO_SUCCESS) {
+        return err;
+    }
+
+    *angle = pbio_control_settings_ctl_to_app_long_float(&db->control_heading.settings, &state_heading.position);
+    return PBIO_SUCCESS;
+}
+
+/**
+ * Stops the drivebase and resets the accumulated drivebase state in user units.
+ *
+ * If the gyro is being used for control, it will be reset to the same angle.
+ *
+ * @param [in]  db          The drivebase instance.
+ * @param [in] distance     Distance traveled in mm.
+ * @param [in] angle        Angle turned in degrees.
+ * @return                  Error code.
+ */
+pbio_error_t pbio_drivebase_reset(pbio_drivebase_t *db, int32_t distance, int32_t angle) {
+
+    // Physically stops motors and stops the ongoing controllers, simplifying
+    // the state reset since we won't need to restart ongoing motion.
+    pbio_error_t err = pbio_drivebase_stop(db, PBIO_CONTROL_ON_COMPLETION_COAST);
+    if (err != PBIO_SUCCESS) {
+        return err;
+    }
+
+    // Get measured state according to motor encoders.
+    pbio_control_state_t measured_distance;
+    pbio_control_state_t measured_heading;
+    err = pbio_drivebase_get_state_via_motors(db, &measured_distance, &measured_heading);
+    if (err != PBIO_SUCCESS) {
+        return err;
+    }
+
+    // We want to get: reported_new = measured - offset_new
+    // So we can do:     offset_new = measured - reported_new
+    pbio_angle_t reported_new;
+
+    pbio_angle_from_low_res(&reported_new, distance, db->control_distance.settings.ctl_steps_per_app_step);
+    pbio_angle_diff(&measured_distance.position, &reported_new, &db->distance_offset);
+
+    pbio_angle_from_low_res(&reported_new, angle, db->control_heading.settings.ctl_steps_per_app_step);
+    pbio_angle_diff(&measured_heading.position, &reported_new, &db->heading_offset);
+
+    // Synchronize heading and drivebase angle state if gyro in use.
+    if (db->gyro_heading_type != PBIO_IMU_HEADING_TYPE_NONE) {
+        pbio_imu_set_heading(angle);
+    }
+
+    return PBIO_SUCCESS;
+}
+
+/**
+ * Tests if any drive base is currently actively using the gyro.
+ *
+ * @return @c true if the gyro is being used, else @c false
+ */
+bool pbio_drivebase_any_uses_gyro(void) {
+    for (uint8_t i = 0; i < PBIO_CONFIG_NUM_DRIVEBASES; i++) {
+        pbio_drivebase_t *db = &drivebases[i];
+
+        // Only consider activated drive bases that use the gyro.
+        if (!pbio_drivebase_update_loop_is_running(db) || db->gyro_heading_type == PBIO_IMU_HEADING_TYPE_NONE) {
+            continue;
+        }
+
+        // Active controller means driving or holding, so gyro is in use.
+        if (pbio_control_is_active(&db->control_distance) || pbio_control_is_active(&db->control_heading)) {
+            return true;
+        }
+    }
+    return false;
+}
 
 /**
  * Gets the drivebase settings in user units.
@@ -810,7 +1012,7 @@ pbio_error_t pbio_drivebase_is_stalled(pbio_drivebase_t *db, bool *stalled, uint
     if (err != PBIO_SUCCESS) {
         return err;
     }
-    err = pbio_servo_is_stalled(db->left, &stalled_right, &stall_duration_right);
+    err = pbio_servo_is_stalled(db->right, &stalled_right, &stall_duration_right);
     if (err != PBIO_SUCCESS) {
         return err;
     }

@@ -17,7 +17,7 @@
 #include <pybricks/parameters.h>
 #include <pybricks/robotics.h>
 #include <pybricks/tools.h>
-#include <pybricks/tools/pb_type_awaitable.h>
+#include <pybricks/tools/pb_type_async.h>
 
 #include <pybricks/util_mp/pb_kwarg_helper.h>
 #include <pybricks/util_mp/pb_obj_helper.h>
@@ -29,28 +29,26 @@ typedef struct _pb_type_DriveBase_obj_t pb_type_DriveBase_obj_t;
 struct _pb_type_DriveBase_obj_t {
     mp_obj_base_t base;
     pbio_drivebase_t *db;
-    int32_t initial_distance;
-    int32_t initial_heading;
     #if PYBRICKS_PY_COMMON_CONTROL
     mp_obj_t heading_control;
     mp_obj_t distance_control;
     #endif
-    mp_obj_t awaitables;
+    pb_type_async_t *last_awaitable;
 };
 
 // pybricks.robotics.DriveBase.reset
-static mp_obj_t pb_type_DriveBase_reset(mp_obj_t self_in) {
-    pb_type_DriveBase_obj_t *self = MP_OBJ_TO_PTR(self_in);
+static mp_obj_t pb_type_DriveBase_reset(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
 
-    int32_t distance, drive_speed, angle, turn_rate;
-    pb_assert(pbio_drivebase_get_state_user(self->db, &distance, &drive_speed, &angle, &turn_rate));
+    PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
+        pb_type_DriveBase_obj_t, self,
+        PB_ARG_DEFAULT_INT(distance, 0),
+        PB_ARG_DEFAULT_INT(angle, 0));
 
-    self->initial_distance = distance;
-    self->initial_heading = angle;
+    pb_assert(pbio_drivebase_reset(self->db, pb_obj_get_int(distance_in), pb_obj_get_int(angle_in)));
 
     return mp_const_none;
 }
-MP_DEFINE_CONST_FUN_OBJ_1(pb_type_DriveBase_reset_obj, pb_type_DriveBase_reset);
+static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_DriveBase_reset_obj, 1, pb_type_DriveBase_reset);
 
 // pybricks.robotics.DriveBase.__init__
 static mp_obj_t pb_type_DriveBase_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
@@ -80,19 +78,13 @@ static mp_obj_t pb_type_DriveBase_make_new(const mp_obj_type_t *type, size_t n_a
     self->distance_control = pb_type_Control_obj_make_new(&self->db->control_distance);
     #endif
 
-    // Reset drivebase state
-    pb_type_DriveBase_reset(MP_OBJ_FROM_PTR(self));
-
-    // List of awaitables associated with this drivebase. By keeping track,
-    // we can cancel them as needed when a new movement is started.
-    self->awaitables = mp_obj_new_list(0, NULL);
+    self->last_awaitable = NULL;
 
     return MP_OBJ_FROM_PTR(self);
 }
 
-static bool pb_type_DriveBase_test_completion(mp_obj_t self_in, uint32_t end_time) {
-
-    pb_type_DriveBase_obj_t *self = MP_OBJ_TO_PTR(self_in);
+static pbio_error_t pb_type_drivebase_iterate_once(pbio_os_state_t *state, mp_obj_t parent_obj) {
+    pb_type_DriveBase_obj_t *self = MP_OBJ_TO_PTR(parent_obj);
 
     // Handle I/O exceptions like port unplugged.
     if (!pbio_drivebase_update_loop_is_running(self->db)) {
@@ -100,24 +92,34 @@ static bool pb_type_DriveBase_test_completion(mp_obj_t self_in, uint32_t end_tim
     }
 
     // Get completion state.
-    return pbio_drivebase_is_done(self->db);
+    return pbio_drivebase_is_done(self->db) ? PBIO_SUCCESS : PBIO_ERROR_AGAIN;
 }
 
-static void pb_type_DriveBase_cancel(mp_obj_t self_in) {
+// pybricks.robotics.DriveBase.stop
+static mp_obj_t pb_type_DriveBase_stop(mp_obj_t self_in) {
+
+    // Cancel awaitables.
     pb_type_DriveBase_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    pb_type_async_schedule_stop_iteration(self->last_awaitable);
+
+    // Stop hardware.
     pb_assert(pbio_drivebase_stop(self->db, PBIO_CONTROL_ON_COMPLETION_COAST));
+
+    return mp_const_none;
 }
+MP_DEFINE_CONST_FUN_OBJ_1(pb_type_DriveBase_stop_obj, pb_type_DriveBase_stop);
+
 
 // All drive base methods use the same kind of completion awaitable.
 static mp_obj_t await_or_wait(pb_type_DriveBase_obj_t *self) {
-    return pb_type_awaitable_await_or_wait(
-        MP_OBJ_FROM_PTR(self),
-        self->awaitables,
-        pb_type_awaitable_end_time_none,
-        pb_type_DriveBase_test_completion,
-        pb_type_awaitable_return_none,
-        pb_type_DriveBase_cancel,
-        PB_TYPE_AWAITABLE_OPT_CANCEL_ALL);
+
+    pb_type_async_t config = {
+        .parent_obj = MP_OBJ_FROM_PTR(self),
+        .iter_once = pb_type_drivebase_iterate_once,
+        .close = pb_type_DriveBase_stop,
+    };
+    // New operation always wins; ongoing awaitable motion is cancelled.
+    return pb_type_async_wait_or_await(&config, &self->last_awaitable, true);
 }
 
 // pybricks.robotics.DriveBase.straight
@@ -189,6 +191,39 @@ static mp_obj_t pb_type_DriveBase_curve(size_t n_args, const mp_obj_t *pos_args,
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_DriveBase_curve_obj, 1, pb_type_DriveBase_curve);
 
+// pybricks.robotics.DriveBase.arc
+static mp_obj_t pb_type_DriveBase_arc(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
+        pb_type_DriveBase_obj_t, self,
+        PB_ARG_REQUIRED(radius),
+        PB_ARG_DEFAULT_NONE(angle),
+        PB_ARG_DEFAULT_NONE(distance),
+        PB_ARG_DEFAULT_OBJ(then, pb_Stop_HOLD_obj),
+        PB_ARG_DEFAULT_TRUE(wait));
+
+    // Parse user arguments.
+    mp_int_t radius = pb_obj_get_int(radius_in);
+    if ((distance_in == mp_const_none) == (angle_in == mp_const_none)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("Please specify distance or angle but not both."));
+    }
+
+    pbio_control_on_completion_t then = pb_type_enum_get_value(then_in, &pb_enum_type_Stop);
+
+    if (distance_in != mp_const_none) {
+        pb_assert(pbio_drivebase_drive_arc_distance(self->db, radius, pb_obj_get_int(distance_in), then));
+    } else {
+        pb_assert(pbio_drivebase_drive_arc_angle(self->db, radius, pb_obj_get_int(angle_in), then));
+    }
+
+    // Old way to do parallel movement is to start and not wait on anything.
+    if (!mp_obj_is_true(wait_in)) {
+        return mp_const_none;
+    }
+    // Handle completion by awaiting or blocking.
+    return await_or_wait(self);
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_DriveBase_arc_obj, 1, pb_type_DriveBase_arc);
+
 // pybricks.robotics.DriveBase.drive
 static mp_obj_t pb_type_DriveBase_drive(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
@@ -201,33 +236,19 @@ static mp_obj_t pb_type_DriveBase_drive(size_t n_args, const mp_obj_t *pos_args,
     mp_int_t turn_rate = pb_obj_get_int(turn_rate_in);
 
     // Cancel awaitables but not hardware. Drive forever will handle this.
-    pb_type_awaitable_update_all(self->awaitables, PB_TYPE_AWAITABLE_OPT_CANCEL_ALL);
+    pb_type_async_schedule_stop_iteration(self->last_awaitable);
 
     pb_assert(pbio_drivebase_drive_forever(self->db, speed, turn_rate));
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_DriveBase_drive_obj, 1, pb_type_DriveBase_drive);
 
-// pybricks.robotics.DriveBase.stop
-static mp_obj_t pb_type_DriveBase_stop(mp_obj_t self_in) {
-
-    // Cancel awaitables.
-    pb_type_DriveBase_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    pb_type_awaitable_update_all(self->awaitables, PB_TYPE_AWAITABLE_OPT_CANCEL_ALL);
-
-    // Stop hardware.
-    pb_type_DriveBase_cancel(self_in);
-
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_1(pb_type_DriveBase_stop_obj, pb_type_DriveBase_stop);
-
 // pybricks.robotics.DriveBase.brake
 static mp_obj_t pb_type_DriveBase_brake(mp_obj_t self_in) {
 
     // Cancel awaitables.
     pb_type_DriveBase_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    pb_type_awaitable_update_all(self->awaitables, PB_TYPE_AWAITABLE_OPT_CANCEL_ALL);
+    pb_type_async_schedule_stop_iteration(self->last_awaitable);
 
     // Stop hardware.
     pb_assert(pbio_drivebase_stop(self->db, PBIO_CONTROL_ON_COMPLETION_BRAKE));
@@ -243,7 +264,7 @@ static mp_obj_t pb_type_DriveBase_distance(mp_obj_t self_in) {
     int32_t distance, _;
     pb_assert(pbio_drivebase_get_state_user(self->db, &distance, &_, &_, &_));
 
-    return mp_obj_new_int(distance - self->initial_distance);
+    return mp_obj_new_int(distance);
 }
 MP_DEFINE_CONST_FUN_OBJ_1(pb_type_DriveBase_distance_obj, pb_type_DriveBase_distance);
 
@@ -251,10 +272,15 @@ MP_DEFINE_CONST_FUN_OBJ_1(pb_type_DriveBase_distance_obj, pb_type_DriveBase_dist
 static mp_obj_t pb_type_DriveBase_angle(mp_obj_t self_in) {
     pb_type_DriveBase_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
+    #if MICROPY_PY_BUILTINS_FLOAT
+    float angle;
+    pb_assert(pbio_drivebase_get_state_user_angle(self->db, &angle));
+    return mp_obj_new_float_from_f(angle);
+    #else
     int32_t heading, _;
     pb_assert(pbio_drivebase_get_state_user(self->db, &_, &_, &heading, &_));
-
-    return mp_obj_new_int(heading - self->initial_heading);
+    return mp_obj_new_int(heading);
+    #endif
 }
 MP_DEFINE_CONST_FUN_OBJ_1(pb_type_DriveBase_angle_obj, pb_type_DriveBase_angle);
 
@@ -266,9 +292,9 @@ static mp_obj_t pb_type_DriveBase_state(mp_obj_t self_in) {
     pb_assert(pbio_drivebase_get_state_user(self->db, &distance, &drive_speed, &heading, &turn_rate));
 
     mp_obj_t ret[4];
-    ret[0] = mp_obj_new_int(distance - self->initial_distance);
+    ret[0] = mp_obj_new_int(distance);
     ret[1] = mp_obj_new_int(drive_speed);
-    ret[2] = mp_obj_new_int(heading - self->initial_heading);
+    ret[2] = mp_obj_new_int(heading);
     ret[3] = mp_obj_new_int(turn_rate);
 
     return mp_obj_new_tuple(4, ret);
@@ -313,11 +339,7 @@ static mp_obj_t pb_type_DriveBase_settings(size_t n_args, const mp_obj_t *pos_ar
         &turn_rate, &turn_acceleration, &turn_deceleration);
 
     // If all given values are none, return current values
-    if (straight_speed_in == mp_const_none &&
-        straight_acceleration_in == mp_const_none &&
-        turn_rate_in == mp_const_none &&
-        turn_acceleration_in == mp_const_none
-        ) {
+    if (PB_PARSE_ARGS_METHOD_ALL_NONE()) {
         mp_obj_t ret[] = {
             mp_obj_new_int(straight_speed),
             make_acceleration_return_value(straight_acceleration, straight_deceleration),
@@ -348,7 +370,19 @@ static mp_obj_t pb_type_DriveBase_use_gyro(size_t n_args, const mp_obj_t *pos_ar
     PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
         pb_type_DriveBase_obj_t, self,
         PB_ARG_REQUIRED(use_gyro));
-    pb_assert(pbio_drivebase_set_use_gyro(self->db, mp_obj_is_true(use_gyro_in)));
+
+    pbio_imu_heading_type_t type = PBIO_IMU_HEADING_TYPE_NONE;
+    if (mp_obj_is_true(use_gyro_in)) {
+        type = PBIO_IMU_HEADING_TYPE_1D;
+    }
+
+    // Allows testing of 3D heading calculation before it becomes the default
+    // in a future release.
+    if (use_gyro_in == MP_OBJ_NEW_QSTR(MP_QSTR_3D)) {
+        type = PBIO_IMU_HEADING_TYPE_3D;
+    }
+
+    pb_assert(pbio_drivebase_set_use_gyro(self->db, type));
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_DriveBase_use_gyro_obj, 1, pb_type_DriveBase_use_gyro);
@@ -364,6 +398,7 @@ static const pb_attr_dict_entry_t pb_type_DriveBase_attr_dict[] = {
 
 // dir(pybricks.robotics.DriveBase)
 static const mp_rom_map_elem_t pb_type_DriveBase_locals_dict_table[] = {
+    { MP_ROM_QSTR(MP_QSTR_arc),              MP_ROM_PTR(&pb_type_DriveBase_arc_obj)      },
     { MP_ROM_QSTR(MP_QSTR_curve),            MP_ROM_PTR(&pb_type_DriveBase_curve_obj)    },
     { MP_ROM_QSTR(MP_QSTR_straight),         MP_ROM_PTR(&pb_type_DriveBase_straight_obj) },
     { MP_ROM_QSTR(MP_QSTR_turn),             MP_ROM_PTR(&pb_type_DriveBase_turn_obj)     },

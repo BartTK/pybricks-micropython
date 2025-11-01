@@ -70,6 +70,15 @@ $(error failed)
 endif
 endif
 endif
+ifeq ($(PB_LIB_UMM_MALLOC),1)
+ifeq ("$(wildcard $(PBTOP)/lib/umm_malloc/README.md)","")
+$(info GIT cloning umm_malloc submodule)
+$(info $(shell cd $(PBTOP) && git submodule update --checkout --init lib/umm_malloc))
+ifeq ("$(wildcard $(PBTOP)/lib/umm_malloc/README.md)","")
+$(error failed)
+endif
+endif
+endif
 
 # lets micropython make files work with external files
 USER_C_MODULES = $(PBTOP)
@@ -78,17 +87,12 @@ include $(PBTOP)/micropython/py/mkenv.mk
 
 # Include common frozen modules.
 ifeq ($(PB_FROZEN_MODULES),1)
-ifneq ("$(wildcard $(PBTOP)/bricks/_common/modules/*.py)","")
-FROZEN_MANIFEST ?= ../_common/manifest.py
-endif
+FROZEN_MANIFEST ?= manifest.py
 endif
 
 # qstr definitions (must come before including py.mk)
 QSTR_DEFS = $(PBTOP)/bricks/_common/qstrdefs.h
 QSTR_GLOBAL_DEPENDENCIES = $(PBTOP)/bricks/_common/mpconfigport.h
-ifeq ($(PB_MCU_FAMILY),STM32)
-QSTR_GLOBAL_DEPENDENCIES += ../_common_stm32/mpconfigport.h
-endif
 
 # MicroPython feature configurations
 MICROPY_ROM_TEXT_COMPRESSION ?= 1
@@ -130,6 +134,14 @@ endif
 ifeq ($(PB_LIB_STM32_USB_DEVICE),1)
 INC += -I$(PBTOP)/lib/STM32_USB_Device_Library/Core/Inc/
 endif
+ifeq ($(PB_MCU_FAMILY),TIAM1808)
+INC += -I$(PBTOP)/lib/pbio/platform/ev3/osek
+INC += -I$(PBTOP)/lib/tiam1808
+INC += -I$(PBTOP)/lib/tiam1808/tiam1808
+INC += -I$(PBTOP)/lib/tiam1808/tiam1808/hw
+INC += -I$(PBTOP)/lib/tiam1808/tiam1808/armv5
+INC += -I$(PBTOP)/lib/tiam1808/tiam1808/armv5/am1808
+endif
 INC += -I$(PBTOP)
 INC += -I$(BUILD)
 
@@ -153,7 +165,7 @@ ifeq ($(PB_MCU_FAMILY),AT91SAM7)
 CFLAGS_MCU = -mthumb -mthumb-interwork -mtune=arm7tdmi -mcpu=arm7tdmi -msoft-float
 else
 ifeq ($(PB_MCU_FAMILY),TIAM1808)
-CFLAGS_MCU =
+CFLAGS_MCU = -mcpu=arm926ej-s -Dgcc -Dam1808
 else
 $(error unsupported PB_MCU_FAMILY)
 endif
@@ -161,7 +173,7 @@ endif
 endif
 
 CFLAGS_WARN = -Wall -Werror -Wextra -Wno-unused-parameter -Wno-maybe-uninitialized
-CFLAGS = $(INC) -std=c99 -nostdlib -fshort-enums $(CFLAGS_MCU) $(CFLAGS_WARN) $(COPT) $(CFLAGS_EXTRA)
+CFLAGS = $(INC) -std=c11 -nostdlib -fshort-enums $(CFLAGS_MCU) $(CFLAGS_WARN) $(COPT) $(CFLAGS_EXTRA)
 $(BUILD)/lib/libm/%.o: CFLAGS += -Wno-sign-compare
 
 # linker scripts
@@ -171,6 +183,12 @@ LD_FILES += $(PBTOP)/lib/pbio/platform/arm_common.ld
 endif
 
 LDFLAGS = $(addprefix -T,$(LD_FILES)) -Wl,-Map=$@.map -Wl,--cref -Wl,--gc-sections
+ifeq ($(PB_MCU_FAMILY),TIAM1808)
+# "nmagic" mode
+# This option (with a legacy name) is used to disable page alignment of sections,
+# which makes the resulting ELF file smaller as padding will be eliminated.
+LDFLAGS += -n
+endif
 
 SUPPORTS_HARDWARE_FP_SINGLE = 0
 ifeq ($(PB_MCU_FAMILY),STM32)
@@ -186,9 +204,9 @@ CFLAGS += -fsingle-precision-constant -Wdouble-promotion
 ifeq ($(DEBUG), 1)
 CFLAGS += -Og -ggdb
 else ifeq ($(DEBUG), 2)
-CFLAGS += -Os -DNDEBUG -flto
+CFLAGS += -Os -DNDEBUG -flto=auto
 else
-CFLAGS += -Os -DNDEBUG -flto
+CFLAGS += -Os -DNDEBUG -flto=auto
 CFLAGS += -fdata-sections -ffunction-sections
 endif
 
@@ -232,33 +250,66 @@ PY_EXTRA_SRC_C += $(addprefix bricks/_common/,\
 	micropython.c \
 	)
 
-ifeq ($(PB_MCU_FAMILY),STM32)
-PY_EXTRA_SRC_C += $(addprefix bricks/_common_stm32/,\
-	mphalport.c \
-	)
-
-ifeq ($(PB_MCU_SERIES),F0)
-SRC_S += shared/runtime/gchelper_thumb1.s
-else
-SRC_S += shared/runtime/gchelper_thumb2.s
-endif
-endif
-
+# TODO: NXT should eventually use the same mphalport.c as well.
 ifeq ($(PB_MCU_FAMILY),AT91SAM7)
 PY_EXTRA_SRC_C += $(addprefix bricks/nxt/,\
 	mphalport.c \
 	)
-
-SRC_S += shared/runtime/gchelper_thumb1.s
-endif
-
-ifeq ($(PB_MCU_FAMILY),TIAM1808)
-PY_EXTRA_SRC_C += $(addprefix bricks/ev3/,\
+else
+PY_EXTRA_SRC_C += $(addprefix bricks/_common/,\
 	mphalport.c \
 	)
-
-SRC_S += shared/runtime/gchelper_thumb1.s
 endif
+
+# Not all MCUs support thumb2 instructions.
+ifeq ($(PB_MCU_SERIES),$(filter $(PB_MCU_SERIES),AT91SAM7 F0 TIAM1808))
+SRC_S += shared/runtime/gchelper_thumb1.s
+else
+SRC_S += shared/runtime/gchelper_thumb2.s
+endif
+
+# Skipping uart_irda_cir.c, gpio_v2.c, and hsi2c.c usbphyGS70.c, which
+# partially overlap with uart.c, gpio.c, and i2c.c, usbphyGS70.c
+TI_AM1808_SRC_C = $(addprefix lib/tiam1808/,\
+	drivers/cppi41dma.c \
+	drivers/cpsw.c \
+	drivers/dmtimer.c \
+	drivers/ecap.c \
+	drivers/edma.c \
+	drivers/ehrpwm.c \
+	drivers/emifa.c \
+	drivers/gpio.c \
+	drivers/gpmc.c \
+	drivers/hs_mmcsd.c \
+	drivers/i2c.c \
+	drivers/mcasp.c \
+	drivers/mcspi.c \
+	drivers/mdio.c \
+	drivers/pruss.c \
+	drivers/psc.c \
+	drivers/rtc.c \
+	drivers/spi.c \
+	drivers/syscfg.c \
+	drivers/timer.c \
+	drivers/uart.c \
+	drivers/usb.c \
+	drivers/usbphyGS60.c \
+	drivers/watchdog.c \
+	system_config/armv5/am1808/interrupt.c \
+	system_config/armv5/gcc/cp15.c \
+	system_config/armv5/gcc/cpu.c \
+	)
+
+TI_AM1808_SRC_C += $(addprefix lib/pbio/drv/uart/uart_ev3_pru_lib/,\
+	pru.c \
+	suart_api.c \
+	suart_utils.c \
+	)
+
+EV3_SRC_S = $(addprefix lib/pbio/platform/ev3/,\
+	exceptionhandler.S \
+	start.S \
+	)
 
 # STM32 Bluetooth stack
 
@@ -291,31 +342,31 @@ BTSTACK_SRC_C = $(addprefix lib/btstack/src/,\
 	btstack_crypto.c \
 	btstack_hid_parser.c \
 	btstack_linked_list.c \
-	btstack_memory.c \
 	btstack_memory_pool.c \
+	btstack_memory.c \
 	btstack_ring_buffer.c \
 	btstack_run_loop.c \
 	btstack_slip.c \
 	btstack_tlv.c \
 	btstack_util.c \
-	hci.c \
 	hci_cmd.c \
 	hci_dump.c \
 	hci_transport_em9304_spi.c \
 	hci_transport_h4.c \
 	hci_transport_h5.c \
-	l2cap.c \
+	hci.c \
 	l2cap_signaling.c \
+	l2cap.c \
 	)
 
 BTSTACK_SRC_C += $(addprefix lib/btstack/src/ble/,\
-	gatt-service/device_information_service_server.c \
-	gatt-service/nordic_spp_service_server.c \
 	att_db_util.c \
 	att_db.c \
 	att_dispatch.c \
 	att_server.c \
 	gatt_client.c \
+	gatt-service/device_information_service_server.c \
+	gatt-service/nordic_spp_service_server.c \
 	le_device_db_memory.c \
 	sm.c \
 	)
@@ -335,8 +386,8 @@ STM32_HAL_SRC_C = $(addprefix lib/stm32lib/STM32$(PB_MCU_SERIES)xx_HAL_Driver/Sr
 	stm32$(PB_MCU_SERIES_LCASE)xx_hal_dac_ex.c \
 	stm32$(PB_MCU_SERIES_LCASE)xx_hal_dac.c \
 	stm32$(PB_MCU_SERIES_LCASE)xx_hal_dma.c \
-	stm32$(PB_MCU_SERIES_LCASE)xx_hal_flash.c \
 	stm32$(PB_MCU_SERIES_LCASE)xx_hal_flash_ex.c \
+	stm32$(PB_MCU_SERIES_LCASE)xx_hal_flash.c \
 	stm32$(PB_MCU_SERIES_LCASE)xx_hal_fmpi2c.c \
 	stm32$(PB_MCU_SERIES_LCASE)xx_hal_gpio.c \
 	stm32$(PB_MCU_SERIES_LCASE)xx_hal_i2c.c \
@@ -396,15 +447,23 @@ endif
 SRC_STM32_USB_DEV += $(addprefix lib/pbio/drv/usb/stm32_usbd/,\
 	usbd_conf.c \
 	usbd_desc.c \
+	usbd_pybricks.c \
 	)
+
+# umm_malloc library
+
+SRC_UMM_MALLOC = lib/umm_malloc/src/umm_malloc.c
+
+ifeq ($(PB_LIB_UMM_MALLOC),1)
+CFLAGS += -I$(PBTOP)/lib/umm_malloc/src
+endif
+
+# NXT OS
 
 NXOS_SRC_C = $(addprefix lib/pbio/platform/nxt/nxos/,\
 	_abort.c \
 	assert.c \
-	lock.c \
-	util.c \
 	display.c \
-	interrupts.c \
 	drivers/_efc.c \
 	drivers/_lcd.c \
 	drivers/_twi.c \
@@ -418,14 +477,18 @@ NXOS_SRC_C = $(addprefix lib/pbio/platform/nxt/nxos/,\
 	drivers/radar.c \
 	drivers/rs485.c \
 	drivers/sensors.c \
-	drivers/usb.c \
+	interrupts.c \
+	lock.c \
+	util.c \
 	)
 
 NXOS_SRC_S = $(addprefix lib/pbio/platform/nxt/nxos/,\
 	irq.s \
 	)
 
+ifneq ($(PB_MCU_FAMILY),TIAM1808)
 SRC_S += lib/pbio/platform/$(PBIO_PLATFORM)/startup.s
+endif
 
 OBJ = $(PY_O)
 OBJ += $(addprefix $(BUILD)/, $(SRC_S:.s=.o))
@@ -435,6 +498,7 @@ OBJ += $(addprefix $(BUILD)/, $(PYBRICKS_PYBRICKS_SRC_C:.c=.o))
 OBJ += $(addprefix $(BUILD)/, $(CONTIKI_SRC_C:.c=.o))
 OBJ += $(addprefix $(BUILD)/, $(LWRB_SRC_C:.c=.o))
 OBJ += $(addprefix $(BUILD)/, $(PBIO_SRC_C:.c=.o))
+OBJ += $(addprefix $(BUILD)/, $(LEGO_SPEC_SRC_C:.c=.o))
 OBJ += $(addprefix $(BUILD)/, $(SRC_LIBM:.c=.o))
 
 ifeq ($(PB_LIB_BLUENRG),1)
@@ -469,9 +533,21 @@ OBJ += $(addprefix $(BUILD)/, $(SRC_STM32_USB_DEV:.c=.o))
 $(BUILD)/lib/STM32_USB_Device_Library/%.o: CFLAGS += -Wno-sign-compare
 endif
 
+ifeq ($(PB_LIB_UMM_MALLOC),1)
+OBJ += $(addprefix $(BUILD)/, $(SRC_UMM_MALLOC:.c=.o))
+endif
+
 ifeq ($(PBIO_PLATFORM),nxt)
 OBJ += $(addprefix $(BUILD)/, $(NXOS_SRC_C:.c=.o))
 OBJ += $(addprefix $(BUILD)/, $(NXOS_SRC_S:.s=.o))
+endif
+
+ifeq ($(PB_MCU_FAMILY),TIAM1808)
+OBJ += $(addprefix $(BUILD)/, $(TI_AM1808_SRC_C:.c=.o))
+OBJ += $(addprefix $(BUILD)/, $(EV3_SRC_S:.S=.o))
+$(addprefix $(BUILD)/, $(EV3_SRC_S:.S=.o)): CFLAGS += -D__ASSEMBLY__
+OBJ += $(BUILD)/pru_suart.bin.o
+OBJ += $(BUILD)/pru_ledpwm.bin.o
 endif
 
 # List of sources for qstr extraction
@@ -508,11 +584,13 @@ $(BUILD)/genhdr/%.h: $(PBTOP)/lib/pbio/drv/bluetooth/%.gatt
 endif
 
 ifeq ($(MICROPY_GIT_TAG),)
-FW_VERSION := $(shell $(GIT) describe --tags --dirty --always --exclude "@pybricks/*")
-else
 # CI builds use build number + git hash as tag/firmware version
-FW_VERSION := $(MICROPY_GIT_TAG)
+export MICROPY_GIT_TAG := local-build-$(shell $(GIT) describe --tags --dirty --always --exclude "@pybricks/*")
+export MICROPY_GIT_HASH :=$(shell $(GIT) rev-parse --short HEAD)
 endif
+FW_VERSION := $(MICROPY_GIT_TAG)
+
+$(info PLATFORM: $(PBIO_PLATFORM) VERSION: $(FW_VERSION))
 
 ifeq ($(PB_MCU_FAMILY),STM32)
 FW_SECTIONS := -j .isr_vector -j .text -j .data -j .name
@@ -525,11 +603,41 @@ $(BUILD)/firmware.elf: $(LD_FILES) $(OBJ)
 	$(Q)$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJ) $(LIBS)
 	$(Q)$(SIZE) -A $@
 
-# firmware blob without main.mpy or checksum - use as base for appending other .mpy
-$(BUILD)/firmware-base.bin: $(BUILD)/firmware.elf
+$(BUILD)/firmware.stripped.elf: $(BUILD)/firmware.elf
+	$(ECHO) "STRIP $@"
+	$(Q)$(STRIP) $< -o $@
+
+# firmware blob without checksum
+$(BUILD)/firmware-obj.bin: $(BUILD)/firmware.elf
 	$(ECHO) "BIN creating firmware base file"
 	$(Q)$(OBJCOPY) -O binary $(FW_SECTIONS) $^ $@
 	$(ECHO) "`wc -c < $@` bytes"
+
+ifeq ($(PB_MCU_FAMILY),TIAM1808)
+
+# REVISIT: downloading things doesn't belong in a Makefile.
+$(BUILD)/u-boot.bin:
+	$(ECHO) "Downloading u-boot.bin"
+	$(Q)mkdir -p $(dir $@)
+	$(Q)curl -sL -o $@ https://github.com/pybricks/u-boot/releases/download/pybricks/v2.0.1/u-boot.bin
+	$(Q)echo "86ddad84f64d8aea85b4315fc1414bdec0bb0d46c92dbd3db45ed599e3a994cb  $@" | sha256sum -c --strict
+$(BUILD)/pru_ledpwm.bin:
+	$(ECHO) "Downloading pru_ledpwm.bin"
+	$(Q)mkdir -p $(dir $@)
+	$(Q)curl -sL -o $@ https://github.com/pybricks/pybricks-pru/releases/download/v1.0.0/pru_ledpwm.bin
+	$(Q)echo "b4f1225e277bb22efa5394ce782cc19a3e2fdd54367e40b9d09e9ca99c6ef6d0  $@" | sha256sum -c --strict
+
+MAKE_BOOTABLE_IMAGE = $(PBTOP)/bricks/ev3/make_bootable_image.py
+
+# For EV3, merge firmware blob with u-boot to create a bootable image.
+$(BUILD)/firmware-base.bin: $(MAKE_BOOTABLE_IMAGE) $(BUILD)/u-boot.bin $(BUILD)/firmware.stripped.elf
+	$(Q)$^ $@
+
+else
+# For embeded systems, the firmware is just the base file.
+$(BUILD)/firmware-base.bin: $(BUILD)/firmware-obj.bin
+	$(Q)cp $< $@
+endif
 
 $(BUILD)/firmware.metadata.json: $(BUILD)/firmware.elf $(METADATA)
 	$(ECHO) "META creating firmware metadata"
@@ -545,13 +653,21 @@ $(BUILD)/firmware.zip: $(ZIP_FILES)
 	$(ECHO) "ZIP creating firmware package"
 	$(Q)$(ZIP) -j $@ $^
 
+# PRU firmware
+$(BUILD)/pru_suart.bin.o: $(PBTOP)/lib/pbio/drv/uart/uart_ev3_pru_lib/pru_suart.bin
+	$(Q)$(OBJCOPY) -I binary -O elf32-littlearm -B arm \
+		--rename-section .data=.pru0,alloc,load,readonly,data,contents $^ $@
+$(BUILD)/pru_ledpwm.bin.o: $(BUILD)/pru_ledpwm.bin
+	$(Q)$(OBJCOPY) -I binary -O elf32-littlearm -B arm \
+		--rename-section .data=.pru1,alloc,load,readonly,data,contents $^ $@
+
 # firmware in DFU format
 $(BUILD)/%.dfu: $(BUILD)/%-base.bin
 	$(ECHO) "DFU Create $@"
 	$(Q)$(PYTHON) $(DFU) -b $(TEXT0_ADDR):$< $@
 
 deploy: $(BUILD)/firmware.zip
-	$(Q)$(PYBRICKSDEV) flash $< $(if $(filter $(PBIO_PLATFORM),nxt),,--name $(PBIO_PLATFORM))
+	$(Q)$(PYBRICKSDEV) flash $< $(if $(filter-out nxt ev3,$(PBIO_PLATFORM)),--name $(PBIO_PLATFORM))
 
 deploy-openocd: $(BUILD)/firmware-base.bin
 	$(ECHO) "Writing $< to the board via ST-LINK using OpenOCD"

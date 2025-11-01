@@ -1,3 +1,38 @@
+## 7.24.0 - 2025-03-11
+
+### Changed
+- Updated firmware to v3.6.1.
+
+## 7.23.0 - 2025-03-02
+
+### Changed
+- Updated firmware to v3.6.0.
+
+## 7.22.0 - 2025-02-26
+
+### Changed
+- Updated firmware to v3.6.0b5.
+
+## 7.21.0 - 2025-02-14
+
+### Changed
+- Updated firmware to v3.6.0b4.
+
+## 7.20.0 - 2025-02-14
+
+### Changed
+- Updated firmware to v3.6.0b3.
+
+## 7.19.0 - 2024-10-15
+
+### Changed
+- Updated firmware to v3.6.0b2.
+
+## 7.18.0 - 2024-09-24
+
+### Changed
+- Updated firmware to v3.6.0b1.
+
 ## 7.17.0 - 2024-04-11
 
 ### Changed

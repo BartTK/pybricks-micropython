@@ -7,15 +7,21 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <pbdrv/stack.h>
+
 #include <pbio/button.h>
 #include <pbio/main.h>
+#include <pbio/os.h>
 #include <pbio/util.h>
+#include <pbio/protocol.h>
 #include <pbsys/main.h>
 #include <pbsys/program_stop.h>
+#include <pbsys/storage.h>
 
 #include <pybricks/common.h>
 #include <pybricks/util_mp/pb_obj_helper.h>
 
+#include "genhdr/mpversion.h"
 #include "shared/readline/readline.h"
 #include "shared/runtime/gchelper.h"
 #include "shared/runtime/interrupt_char.h"
@@ -28,22 +34,22 @@
 #include "py/mphal.h"
 #include "py/objmodule.h"
 #include "py/persistentcode.h"
+#include "py/reader.h"
 #include "py/repl.h"
 #include "py/runtime.h"
+#include "py/smallint.h"
 #include "py/stackctrl.h"
 #include "py/stream.h"
 
 // Implementation for MICROPY_EVENT_POLL_HOOK
 void pb_event_poll_hook(void) {
 
-    // Drive pbio event loop.
-    while (pbio_do_one_event()) {
+    while (pbio_os_run_processes_once()) {
     }
 
     mp_handle_pending(true);
 
-    // Platform-specific code to run on completing the poll hook.
-    pb_event_poll_hook_leave();
+    pbio_os_run_processes_and_wait_for_event();
 }
 
 // callback for when stop button is pressed in IDE or on hub
@@ -51,8 +57,6 @@ void pbsys_main_stop_program(bool force_stop) {
     if (force_stop) {
         mp_sched_vm_abort();
     } else {
-        pyexec_system_exit = PYEXEC_FORCED_EXIT;
-
         static mp_obj_exception_t system_exit;
         system_exit.base.type = &mp_type_SystemExit;
         system_exit.traceback_alloc = system_exit.traceback_len = 0;
@@ -72,61 +76,57 @@ bool pbsys_main_stdin_event(uint8_t c) {
     return false;
 }
 
-// The following defines a reader for use by micropython/py/persistentcode.c.
-typedef struct _mp_vfs_map_minimal_t {
-    const byte *cur;
-    const byte *end;
-} mp_vfs_map_minimal_t;
-
-mp_uint_t mp_vfs_map_minimal_readbyte(void *data) {
-    mp_vfs_map_minimal_t *blob = (mp_vfs_map_minimal_t *)data;
-    return (blob->cur < blob->end) ? *blob->cur++ : MP_READER_EOF;
-}
-
-const uint8_t *mp_vfs_map_minimal_read_bytes(mp_reader_t *reader, size_t len) {
-    mp_vfs_map_minimal_t *blob = (mp_vfs_map_minimal_t *)reader->data;
-    const uint8_t *ptr = blob->cur;
-    blob->cur += len;
-    return ptr;
-}
-
-static void mp_vfs_map_minimal_close(void *data) {
-}
-
-static void mp_vfs_map_minimal_new_reader(mp_reader_t *reader, mp_vfs_map_minimal_t *data, const byte *buf, size_t len) {
-    data->cur = buf;
-    data->end = buf + len;
-    reader->data = data;
-    reader->readbyte = mp_vfs_map_minimal_readbyte;
-    reader->close = mp_vfs_map_minimal_close;
-}
-
 // Prints the exception that ended the program.
-static void print_final_exception(mp_obj_t exc) {
-    // Handle graceful stop with button.
-    if (pyexec_system_exit == PYEXEC_FORCED_EXIT &&
-        mp_obj_exception_match(exc, MP_OBJ_FROM_PTR(&mp_type_SystemExit))) {
-        mp_printf(&mp_plat_print, "The program was stopped (%q).\n",
-            ((mp_obj_exception_t *)MP_OBJ_TO_PTR(exc))->base.type->name);
-        return;
-    }
+static void print_final_exception(mp_obj_t exc, int ret) {
+    nlr_buf_t nlr;
+    nlr.ret_val = NULL;
 
-    // Print unhandled exception with traceback.
-    mp_obj_print_exception(&mp_plat_print, exc);
+    if (nlr_push(&nlr) == 0) {
+        // Handle graceful stop with button.
+        if ((ret & PYEXEC_FORCED_EXIT) &&
+            mp_obj_exception_match(exc, MP_OBJ_FROM_PTR(&mp_type_SystemExit))) {
+            mp_printf(&mp_plat_print, "The program was stopped (%q).\n",
+                ((mp_obj_exception_t *)MP_OBJ_TO_PTR(exc))->base.type->name);
+            return;
+        }
+
+        // REVISIT: flash the light red a few times to indicate an unhandled exception?
+
+        // Print unhandled exception with traceback.
+        mp_obj_print_exception(&mp_plat_print, exc);
+
+        nlr_pop();
+    } else {
+        // If we couldn't print the exception, just return. There is nothing
+        // else we can do.
+
+        // REVISIT: flash the light with a different pattern here?
+    }
 }
 
-#if PYBRICKS_OPT_COMPILER
+#if PBSYS_CONFIG_FEATURE_BUILTIN_USER_PROGRAM_REPL
 static void run_repl(void) {
+    int ret = 0;
+
     readline_init0();
-    pyexec_system_exit = 0;
 
     nlr_buf_t nlr;
     nlr.ret_val = NULL;
 
     if (nlr_push(&nlr) == 0) {
         nlr_set_abort(&nlr);
-        // Run the REPL.
-        pyexec_friendly_repl();
+        // No need to set interrupt_char here, it is done by pyexec.
+        #if PYBRICKS_OPT_RAW_REPL
+        if (pyexec_mode_kind == PYEXEC_MODE_RAW_REPL) {
+            // Compatibility with mpremote.
+            mp_printf(&mp_plat_print, "MPY: soft reboot\n");
+            ret = pyexec_raw_repl();
+        } else {
+            ret = pyexec_friendly_repl();
+        }
+        #else // PYBRICKS_OPT_RAW_REPL
+        ret = pyexec_friendly_repl();
+        #endif // PYBRICKS_OPT_RAW_REPL
         nlr_pop();
     } else {
         // if vm abort
@@ -138,43 +138,13 @@ static void run_repl(void) {
         // clear any pending exceptions (and run any callbacks).
         mp_handle_pending(false);
         // Print which exception triggered this.
-        print_final_exception(MP_OBJ_FROM_PTR(nlr.ret_val));
+        print_final_exception(MP_OBJ_FROM_PTR(nlr.ret_val), ret);
     }
 
     nlr_set_abort(NULL);
 }
-#endif
+#endif // PBSYS_CONFIG_FEATURE_BUILTIN_USER_PROGRAM_REPL
 
-// From micropython/py/builtinimport.c, but copied because it is static.
-static void do_execute_raw_code(mp_module_context_t *context, const mp_raw_code_t *rc, const mp_module_context_t *mc) {
-
-    // execute the module in its context
-    mp_obj_dict_t *mod_globals = context->module.globals;
-
-    // save context
-    mp_obj_dict_t *volatile old_globals = mp_globals_get();
-    mp_obj_dict_t *volatile old_locals = mp_locals_get();
-
-    // set new context
-    mp_globals_set(mod_globals);
-    mp_locals_set(mod_globals);
-
-    nlr_buf_t nlr;
-    if (nlr_push(&nlr) == 0) {
-        mp_obj_t module_fun = mp_make_function_from_raw_code(rc, mc, NULL);
-        mp_call_function_0(module_fun);
-
-        // finish nlr block, restore context
-        nlr_pop();
-        mp_globals_set(old_globals);
-        mp_locals_set(old_locals);
-    } else {
-        // exception; restore context and re-raise same exception
-        mp_globals_set(old_globals);
-        mp_locals_set(old_locals);
-        nlr_jump(nlr.ret_val);
-    }
-}
 
 /** mpy info and data for one script or module. */
 typedef struct {
@@ -213,7 +183,7 @@ static uint8_t *mpy_data_get_buf(mpy_info_t *info) {
 static mpy_info_t *mpy_data_find(qstr name) {
     const char *name_str = qstr_str(name);
 
-    for (mpy_info_t *info = mpy_first; info < mpy_end;
+    for (mpy_info_t *info = mpy_first; (uintptr_t)info + sizeof(uint32_t) < (uintptr_t)mpy_end;
          info = (mpy_info_t *)(mpy_data_get_buf(info) + pbio_get_uint32_le(info->mpy_size))) {
         if (strcmp(info->mpy_name, name_str) == 0) {
             return info;
@@ -223,11 +193,49 @@ static mpy_info_t *mpy_data_find(qstr name) {
     return NULL;
 }
 
+// From micropython/py/builtinimport.c, but copied because it is static.
+static void do_execute_proto_fun(const mp_module_context_t *context, mp_proto_fun_t proto_fun) {
+
+    // execute the module in its context
+    mp_obj_dict_t *mod_globals = context->module.globals;
+
+    // save context
+    nlr_jump_callback_node_globals_locals_t ctx;
+    ctx.globals = mp_globals_get();
+    ctx.locals = mp_locals_get();
+
+    // set new context
+    mp_globals_set(mod_globals);
+    mp_locals_set(mod_globals);
+
+    // set exception handler to restore context if an exception is raised
+    nlr_push_jump_callback(&ctx.callback, mp_globals_locals_set_from_nlr_jump_callback);
+
+    // make and execute the function
+    mp_obj_t module_fun = mp_make_function_from_proto_fun(proto_fun, context, NULL);
+    mp_call_function_0(module_fun);
+
+    // deregister exception handler and restore context
+    nlr_pop_jump_callback(true);
+}
+
+static void execute_rom_mpy_in_context(mp_module_context_t *module_context, mpy_info_t *mpy_info) {
+    // Prepare to execute in its own context.
+    mp_compiled_module_t compiled_module;
+    compiled_module.context = module_context;
+
+    // Execute the MPY file in the new module context.
+    mp_reader_t reader;
+    mp_reader_new_mem(&reader, mpy_data_get_buf(mpy_info), pbio_get_uint32_le(mpy_info->mpy_size), MP_READER_IS_ROM);
+    mp_raw_code_load(&reader, &compiled_module);
+    do_execute_proto_fun(compiled_module.context, compiled_module.rc);
+}
+
 /**
  * Runs the __main__ module from user RAM.
  */
 static void run_user_program(void) {
-    pyexec_system_exit = 0;
+    int ret = 0;
 
     nlr_buf_t nlr;
     nlr.ret_val = NULL;
@@ -235,26 +243,15 @@ static void run_user_program(void) {
     if (nlr_push(&nlr) == 0) {
         nlr_set_abort(&nlr);
 
-        mpy_info_t *info = mpy_data_find(MP_QSTR___main__);
-
-        if (!info) {
-            mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("no __main__ module"));
-        }
-
-        // This is similar to __import__ except we don't push/pop globals
-        mp_reader_t reader;
-        mp_vfs_map_minimal_t data;
-        mp_vfs_map_minimal_new_reader(&reader, &data, mpy_data_get_buf(info), pbio_get_uint32_le(info->mpy_size));
-        mp_module_context_t *context = m_new_obj(mp_module_context_t);
-        context->module.globals = mp_globals_get();
-        mp_compiled_module_t compiled_module;
-        compiled_module.context = context;
-        mp_raw_code_load(&reader, &compiled_module);
-        mp_obj_t module_fun = mp_make_function_from_raw_code(compiled_module.rc, context, NULL);
-
         // Run the script while letting CTRL-C interrupt it.
         mp_hal_set_interrupt_char(CHAR_CTRL_C);
-        mp_call_function_0(module_fun);
+
+        // Main program runs in __main__ module which is already initialized.
+        mp_module_context_t main_context = {
+            .module = mp_module___main__
+        };
+        execute_rom_mpy_in_context(&main_context, mpy_first);
+
         mp_hal_set_interrupt_char(-1);
 
         // Handle any pending exceptions (and any callbacks)
@@ -273,40 +270,103 @@ static void run_user_program(void) {
         // Clear any pending exceptions (and run any callbacks).
         mp_handle_pending(false);
 
-        print_final_exception(MP_OBJ_FROM_PTR(nlr.ret_val));
+        if (mp_obj_is_subclass_fast(MP_OBJ_FROM_PTR(((mp_obj_base_t *)nlr.ret_val)->type), MP_OBJ_FROM_PTR(&mp_type_SystemExit))) {
+            // at the moment, the value of SystemExit is unused
+            ret = PYEXEC_FORCED_EXIT;
+        }
 
-        #if PYBRICKS_OPT_COMPILER
+        print_final_exception(MP_OBJ_FROM_PTR(nlr.ret_val), ret);
+
+        #if PBSYS_CONFIG_FEATURE_BUILTIN_USER_PROGRAM_REPL
         // On KeyboardInterrupt, drop to REPL for debugging.
         if (mp_obj_exception_match(MP_OBJ_FROM_PTR(nlr.ret_val), MP_OBJ_FROM_PTR(&mp_type_KeyboardInterrupt))) {
 
             // The global scope is preserved to facilitate debugging, but we
             // stop active resources like motors and sounds. They are stopped
             // but not reset so the user can restart them in the REPL.
-            pbio_stop_all(false);
+            pbio_main_soft_stop();
 
             // Enter REPL.
             run_repl();
         }
-        #endif
+        #endif // PBSYS_CONFIG_FEATURE_BUILTIN_USER_PROGRAM_REPL
     }
 
     nlr_set_abort(NULL);
 }
 
+pbio_error_t pbsys_main_program_validate(pbsys_main_program_t *program) {
+
+    // For builtin programs, check requested ID against feature flags.
+    #if PBSYS_CONFIG_FEATURE_BUILTIN_USER_PROGRAM_REPL
+    if (program->id == PBIO_PYBRICKS_USER_PROGRAM_ID_REPL) {
+        return PBIO_SUCCESS;
+    }
+    #endif
+    #if PBSYS_CONFIG_FEATURE_BUILTIN_USER_PROGRAM_PORT_VIEW
+    if (program->id == PBIO_PYBRICKS_USER_PROGRAM_ID_PORT_VIEW) {
+        return PBIO_SUCCESS;
+    }
+    #endif
+    #if PBSYS_CONFIG_FEATURE_BUILTIN_USER_PROGRAM_IMU_CALIBRATION
+    if (program->id == PBIO_PYBRICKS_USER_PROGRAM_ID_IMU_CALIBRATION) {
+        return PBIO_SUCCESS;
+    }
+    #endif
+
+    // If requesting a user program, ensure that it exists and is valid.
+    uint32_t program_size = program->code_end - program->code_start;
+    if (program_size == 0 || program_size > pbsys_storage_get_maximum_program_size()) {
+        return PBIO_ERROR_NOT_SUPPORTED;
+    }
+
+    // Application-specific name may be used in system UI.
+    mpy_info_t *mpy_info = (mpy_info_t *)program->code_start;
+    program->name = mpy_info->mpy_name;
+
+    // This is the same test done when loading the mpy. Do it early so we don't
+    // start MicroPython and so the system knows this is valid. Revisit: Consider
+    // making this part of the public API upstream.
+    uint8_t *header = mpy_data_get_buf(mpy_info);
+    uint8_t arch = MPY_FEATURE_DECODE_ARCH(header[2]);
+    if (header[0] != 'M'
+        || header[1] != MPY_VERSION
+        || (arch != MP_NATIVE_ARCH_NONE && MPY_FEATURE_DECODE_SUB_VERSION(header[2]) != MPY_SUB_VERSION)
+        || header[3] > MP_SMALL_INT_BITS) {
+        return PBIO_ERROR_INVALID_ARG;
+    }
+
+    return PBIO_SUCCESS;
+}
+
+const char *pbsys_main_get_application_version_hash(void) {
+    // This is (somewhat confusingly) passed in as the MICROPY_GIT_HASH.
+    // REVISIT: Make PYBRICKS_GIT_HASH available in a pbio header via a build step.
+    return MICROPY_GIT_HASH;
+}
+
 // Runs MicroPython with the given program data.
 void pbsys_main_run_program(pbsys_main_program_t *program) {
 
+    #if PBDRV_CONFIG_STACK_EMBEDDED
     // Stack limit should be less than real stack size, so we have a chance
     // to recover from limit hit.  (Limit is measured in bytes.)
-    // Note: stack control relies on main thread being initialised above
-    char *sstack;
-    char *estack;
-    pb_stack_get_info(&sstack, &estack);
-    mp_stack_set_top(estack);
-    mp_stack_set_limit(estack - sstack - 1024);
+    char *stack_start;
+    char *stack_end;
+    pbdrv_stack_get_info(&stack_start, &stack_end);
+    #if PYBRICKS_OPT_USE_STACK_END_AS_TOP
+    mp_stack_set_top(stack_end);
+    #else
+    // Sets the top to current stack pointer.
+    mp_stack_ctrl_init();
+    #endif
+    mp_stack_set_limit(MP_STATE_THREAD(stack_top) - stack_start - 1024);
+    #else
+    mp_cstack_init_with_sp_here(1024 * 1024);
+    #endif
 
-    // MicroPython heap starts after program data.
-    gc_init(program->code_end, program->data_end);
+    // MicroPython heap is the free RAM after program data.
+    gc_init(program->user_ram_start, program->user_ram_end);
 
     // Set program data reference to first script. This is used to run main,
     // and to set the starting point for finding downloaded modules.
@@ -315,26 +375,40 @@ void pbsys_main_run_program(pbsys_main_program_t *program) {
     // Initialize MicroPython.
     mp_init();
 
-    // Check for run type.
-    if (!program->run_builtin) {
-        // Init Pybricks package without auto-import.
-        pb_package_pybricks_init(false);
-        // Run loaded program.
-        run_user_program();
-    }
-    #if PYBRICKS_OPT_COMPILER
-    else {
-        // For MicroPython, the builtin program is the REPL.
-        // Run it with everything auto-imported.
-        pb_package_pybricks_init(true);
-        run_repl();
-    }
-    #endif // PYBRICKS_OPT_COMPILER
+    // Runs the requested downloaded or builtin user program.
+    switch (program->id) {
 
-    // De-init bluetooth resources (including flushing stdout) that may use
-    // memory allocated by MicroPython before we wipe it.
-    pb_package_pybricks_deinit();
+        #if PBSYS_CONFIG_FEATURE_BUILTIN_USER_PROGRAM_REPL
+        case PBIO_PYBRICKS_USER_PROGRAM_ID_REPL:
+            // Run REPL with everything auto-imported.
+            pb_package_pybricks_init(true);
+            run_repl();
+            break;
+        #endif
 
+        #if PBSYS_CONFIG_FEATURE_BUILTIN_USER_PROGRAM_PORT_VIEW && MICROPY_MODULE_FROZEN
+        case PBIO_PYBRICKS_USER_PROGRAM_ID_PORT_VIEW:
+            pb_package_pybricks_init(false);
+            pyexec_frozen_module("_builtin_port_view.py", false);
+            break;
+        #endif
+
+        #if PBSYS_CONFIG_FEATURE_BUILTIN_USER_PROGRAM_IMU_CALIBRATION
+        case PBIO_PYBRICKS_USER_PROGRAM_ID_IMU_CALIBRATION:
+            // Todo
+            break;
+        #endif
+
+        default:
+            // Init Pybricks package without auto-import.
+            pb_package_pybricks_init(false);
+            // Run loaded user program (just slot 0 for now).
+            run_user_program();
+            break;
+    }
+}
+
+void pbsys_main_run_program_cleanup(void) {
     gc_sweep_all();
     mp_deinit();
 }
@@ -358,9 +432,21 @@ mp_obj_t pb_builtin_import(size_t n_args, const mp_obj_t *args) {
         mp_raise_NotImplementedError(MP_ERROR_TEXT("relative import"));
     }
 
-    // Check if module already exists, and return it if it does
+    // Check if the module is already loaded.
+    mp_map_elem_t *elem = mp_map_lookup(&MP_STATE_VM(mp_loaded_modules_dict).map, args[0], MP_MAP_LOOKUP);
+    if (elem) {
+        return elem->value;
+    }
+
+    // Try the name directly as a non-extensible built-in (e.g. `micropython`).
     qstr module_name_qstr = mp_obj_str_get_qstr(args[0]);
-    mp_obj_t module_obj = mp_module_get_loaded_or_builtin(module_name_qstr);
+    mp_obj_t module_obj = mp_module_get_builtin(module_name_qstr, false);
+    if (module_obj != MP_OBJ_NULL) {
+        return module_obj;
+    }
+
+    // Now try as an extensible built-in (e.g. `struct`/`ustruct`).
+    module_obj = mp_module_get_builtin(module_name_qstr, true);
     if (module_obj != MP_OBJ_NULL) {
         return module_obj;
     }
@@ -370,21 +456,14 @@ mp_obj_t pb_builtin_import(size_t n_args, const mp_obj_t *args) {
 
     // If a downloaded module was found but not yet loaded, load it.
     if (info) {
-        // Parse the static script data.
-        mp_reader_t reader;
-        mp_vfs_map_minimal_t data;
-        mp_vfs_map_minimal_new_reader(&reader, &data, mpy_data_get_buf(info), pbio_get_uint32_le(info->mpy_size));
+        // Create new module.
+        mp_module_context_t *module_context = mp_obj_new_module(module_name_qstr);
 
-        // Create new module and execute in its own context.
-        mp_obj_t module_obj = mp_obj_new_module(module_name_qstr);
-        mp_module_context_t *context = MP_OBJ_TO_PTR(module_obj);
-        mp_compiled_module_t compiled_module;
-        compiled_module.context = context;
-        mp_raw_code_load(&reader, &compiled_module);
-        do_execute_raw_code(context, compiled_module.rc, compiled_module.context);
+        // Execute the module in that context.
+        execute_rom_mpy_in_context(module_context, info);
 
         // Return the newly imported module.
-        return module_obj;
+        return MP_OBJ_FROM_PTR(module_context);
     }
 
     // Allow importing of frozen modules if any were included in the firmware.
@@ -395,13 +474,15 @@ mp_obj_t pb_builtin_import(size_t n_args, const mp_obj_t *args) {
     char module_path[(1 << (8 * MICROPY_QSTR_BYTES_IN_LEN)) + sizeof(ext)] = { 0 };
     strcpy(module_path, mp_obj_str_get_str(args[0]));
     strcpy(module_path + qstr_len(module_name_qstr), ext);
-    if (mp_find_frozen_module(module_path, &frozen_type, &modref) == MP_IMPORT_STAT_FILE) {
-        // Create new module and execute in its own context, then return it.
-        mp_obj_t module_obj = mp_obj_new_module(module_name_qstr);
-        mp_module_context_t *context = MP_OBJ_TO_PTR(module_obj);
+    if (mp_find_frozen_module(module_path, &frozen_type, &modref) == MP_IMPORT_STAT_FILE && frozen_type == MP_FROZEN_MPY) {
+        // Create new module to be returned.
+        mp_module_context_t *module_context = mp_obj_new_module(module_name_qstr);
+        mp_obj_t module_obj = MP_OBJ_FROM_PTR(module_context);
+
+        // Execute frozen code in the new module context.
         const mp_frozen_module_t *frozen = modref;
-        context->constants = frozen->constants;
-        do_execute_raw_code(context, frozen->rc, context);
+        module_context->constants = frozen->constants;
+        do_execute_proto_fun(module_context, frozen->proto_fun);
         return module_obj;
     }
     #endif
@@ -414,7 +495,7 @@ mp_import_stat_t mp_import_stat(const char *path) {
     return MP_IMPORT_STAT_NO_EXIST;
 }
 
-mp_lexer_t *mp_lexer_new_from_file(const char *filename) {
+mp_lexer_t *mp_lexer_new_from_file(qstr filename) {
     mp_raise_OSError(MP_ENOENT);
 }
 

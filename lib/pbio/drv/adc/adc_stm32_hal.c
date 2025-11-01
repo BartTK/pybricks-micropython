@@ -31,6 +31,8 @@
 #include <pbio/error.h>
 #include <pbio/util.h>
 
+#include <pbdrv/adc.h>
+
 #include STM32_HAL_H
 
 #define PBDRV_ADC_PERIOD_MS 10  // polling period in milliseconds
@@ -44,6 +46,10 @@ static uint32_t pbdrv_adc_error_count;
 static uint32_t pbdrv_adc_last_error;
 
 PROCESS(pbdrv_adc_process, "ADC");
+
+pbio_error_t pbdrv_adc_await_new_samples(pbio_os_state_t *state, uint32_t *start_time_us, uint32_t future_us) {
+    return PBIO_ERROR_NOT_IMPLEMENTED;
+}
 
 pbio_error_t pbdrv_adc_get_ch(uint8_t ch, uint16_t *value) {
     if (ch >= PBDRV_CONFIG_ADC_STM32_HAL_ADC_NUM_CHANNELS) {
@@ -81,11 +87,7 @@ static void pbdrv_adc_exit(void) {
     HAL_DMA_DeInit(&pbdrv_adc_hdma);
 }
 
-PROCESS_THREAD(pbdrv_adc_process, ev, data) {
-    PROCESS_POLLHANDLER(pbdrv_adc_poll());
-    PROCESS_EXITHANDLER(pbdrv_adc_exit());
-
-    PROCESS_BEGIN();
+void pbdrv_adc_init(void) {
 
     // Timer to trigger ADC
 
@@ -148,6 +150,15 @@ PROCESS_THREAD(pbdrv_adc_process, ev, data) {
     HAL_NVIC_EnableIRQ(PBDRV_CONFIG_ADC_STM32_HAL_DMA_IRQ);
     HAL_ADC_Start_DMA(&pbdrv_adc_hadc, pbdrv_adc_dma_buffer, PBIO_ARRAY_SIZE(pbdrv_adc_dma_buffer));
     HAL_TIM_Base_Start(&pbdrv_adc_htim);
+
+    process_start(&pbdrv_adc_process);
+}
+
+PROCESS_THREAD(pbdrv_adc_process, ev, data) {
+    PROCESS_POLLHANDLER(pbdrv_adc_poll());
+    PROCESS_EXITHANDLER(pbdrv_adc_exit());
+
+    PROCESS_BEGIN();
 
     while (true) {
         PROCESS_WAIT_EVENT();

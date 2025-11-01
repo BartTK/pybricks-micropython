@@ -27,10 +27,6 @@ Q(pybricks.hubs)
 Q(pybricks.iodevices)
 #endif
 
-#if PYBRICKS_PY_MEDIA
-Q(pybricks.media)
-#endif
-
 #if PYBRICKS_PY_NXTDEVICES
 Q(pybricks.nxtdevices)
 #endif
@@ -39,7 +35,7 @@ Q(pybricks.nxtdevices)
 Q(pybricks.parameters)
 #endif
 
-#if PYBRICKS_PY_PUPDEVICES
+#if PYBRICKS_PY_PUPDEVICES || PYBRICKS_PY_EV3_PUP_ALIAS
 Q(pybricks.pupdevices)
 #endif
 

@@ -5,22 +5,17 @@
 
 #include <pbdrv/gpio.h>
 #include <pbio/button.h>
+#include <pbdrv/ioport.h>
+#include <pbio/port_interface.h>
 
 #include "../../drv/bluetooth/bluetooth_stm32_cc2640.h"
 #include "../../drv/button/button_gpio.h"
-#include "../../drv/ioport/ioport_pup.h"
 #include "../../drv/led/led_pwm.h"
-#include "../../drv/legodev/legodev_pup.h"
 #include "../../drv/motor_driver/motor_driver_hbridge_pwm.h"
 #include "../../drv/pwm/pwm_stm32_tim.h"
 #include "../../drv/uart/uart_stm32f0.h"
 
 #include "stm32f030xc.h"
-
-enum {
-    COUNTER_PORT_A,
-    COUNTER_PORT_B,
-};
 
 enum {
     LED_DEV_0,
@@ -161,50 +156,51 @@ void EXTI2_3_IRQHandler(void) {
     EXTI->PR = EXTI_PR_PR2;
 }
 
-// I/O ports
-
-const pbdrv_legodev_pup_ext_platform_data_t pbdrv_legodev_pup_ext_platform_data[PBDRV_CONFIG_LEGODEV_PUP_NUM_EXT_DEV] = {
-    {
-        .port_id = PBIO_PORT_ID_A,
-        .ioport_index = 0,
-    },
-    #if PBDRV_CONFIG_LEGODEV_PUP_NUM_EXT_DEV == PBDRV_CONFIG_IOPORT_NUM_DEV
-    {
-        .port_id = PBIO_PORT_ID_B,
-        .ioport_index = 1,
-    },
-    #endif
+const pbdrv_gpio_t pbdrv_ioport_platform_data_vcc_pin = {
+    .bank = GPIOB,
+    .pin = 2
 };
 
-const pbdrv_ioport_pup_platform_data_t pbdrv_ioport_pup_platform_data = {
-    .port_vcc = { .bank = GPIOB, .pin = 2 },
-    .ports = {
-        {
-            .port_id = PBIO_PORT_ID_A,
-            .motor_driver_index = 0,
-            .uart_driver_index = UART_ID_0,
-            .pins = {
-                .gpio1 = { .bank = GPIOA, .pin = 1  },
-                .gpio2 = { .bank = GPIOA, .pin = 3  },
-                .uart_buf = { .bank = GPIOB, .pin = 5  },
-                .uart_tx = { .bank = GPIOC, .pin = 4  },
-                .uart_rx = { .bank = GPIOC, .pin = 5  },
-                .uart_alt = 1, // USART3
-            },
+const pbdrv_ioport_platform_data_t pbdrv_ioport_platform_data[PBDRV_CONFIG_IOPORT_NUM_DEV] = {
+    {
+        .port_id = PBIO_PORT_ID_A,
+        .motor_driver_index = 0,
+        .i2c_driver_index = PBDRV_IOPORT_INDEX_NOT_AVAILABLE,
+        .uart_driver_index = UART_ID_0,
+        .external_port_index = 0,
+        .counter_driver_index = PBDRV_IOPORT_INDEX_NOT_AVAILABLE,
+        .pins = &(pbdrv_ioport_pins_t) {
+            .p5 = { .bank = GPIOA, .pin = 1  },
+            .p6 = { .bank = GPIOA, .pin = 3  },
+            .uart_buf = { .bank = GPIOB, .pin = 5  },
+            .uart_tx = { .bank = GPIOC, .pin = 4  },
+            .uart_rx = { .bank = GPIOC, .pin = 5  },
+            .uart_tx_alt_uart = 1, // USART3
+            .uart_rx_alt_uart = 1, // USART3
         },
-        {
-            .port_id = PBIO_PORT_ID_B,
-            .motor_driver_index = 1,
-            .uart_driver_index = UART_ID_1,
-            .pins = {
-                .gpio1 = { .bank = GPIOA, .pin = 0  },
-                .gpio2 = { .bank = GPIOA, .pin = 2  },
-                .uart_buf = { .bank = GPIOB, .pin = 4  },
-                .uart_tx = { .bank = GPIOC, .pin = 10  },
-                .uart_rx = { .bank = GPIOC, .pin = 11 },
-                .uart_alt = 0, // USART4
-            },
+        #if PBDRV_CONFIG_UART_DEBUG_FIRST_PORT
+        .supported_modes = PBIO_PORT_MODE_UART,
+        #else // PBDRV_CONFIG_UART_DEBUG_FIRST_PORT
+        .supported_modes = PBIO_PORT_MODE_LEGO_DCM | PBIO_PORT_MODE_UART,
+        #endif
+    },
+    {
+        .port_id = PBIO_PORT_ID_B,
+        .motor_driver_index = 1,
+        .i2c_driver_index = PBDRV_IOPORT_INDEX_NOT_AVAILABLE,
+        .uart_driver_index = UART_ID_1,
+        .external_port_index = 1,
+        .counter_driver_index = PBDRV_IOPORT_INDEX_NOT_AVAILABLE,
+        .pins = &(pbdrv_ioport_pins_t) {
+            .p5 = { .bank = GPIOA, .pin = 0  },
+            .p6 = { .bank = GPIOA, .pin = 2  },
+            .uart_buf = { .bank = GPIOB, .pin = 4  },
+            .uart_tx = { .bank = GPIOC, .pin = 10  },
+            .uart_rx = { .bank = GPIOC, .pin = 11 },
+            .uart_tx_alt_uart = 0, // USART4
+            .uart_rx_alt_uart = 0, // USART4
         },
+        .supported_modes = PBIO_PORT_MODE_LEGO_DCM | PBIO_PORT_MODE_UART,
     },
 };
 
@@ -335,7 +331,10 @@ const pbdrv_pwm_stm32_tim_platform_data_t
 // RESET
 
 void pbdrv_reset_power_off(void) {
-    // setting PB11 low cuts the power
+    // This hub turns itself back on if VCC is off during power off.
+    pbdrv_ioport_enable_vcc(true);
+
+    // Setting PB11 low cuts the power.
     GPIOB->BRR = GPIO_BRR_BR_11;
 }
 

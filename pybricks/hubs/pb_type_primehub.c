@@ -41,9 +41,8 @@ typedef struct _hubs_PrimeHub_obj_t {
     mp_obj_t system;
 } hubs_PrimeHub_obj_t;
 
-static mp_obj_t pb_type_primehub_button_pressed(void) {
-    pbio_button_flags_t flags;
-    pb_assert(pbio_button_is_pressed(&flags));
+static mp_obj_t pb_type_primehub_button_pressed(mp_obj_t parent_obj) {
+    pbio_button_flags_t flags = pbdrv_button_get_pressed();
     mp_obj_t pressed[4];
     size_t num = 0;
     if (flags & PBIO_BUTTON_LEFT) {
@@ -66,7 +65,7 @@ static mp_obj_t hubs_PrimeHub_make_new(const mp_obj_type_t *type, size_t n_args,
         PB_ARG_DEFAULT_OBJ(top_side, pb_type_Axis_Z_obj),
         PB_ARG_DEFAULT_OBJ(front_side, pb_type_Axis_X_obj)
         #if PYBRICKS_PY_COMMON_BLE
-        , PB_ARG_DEFAULT_INT(broadcast_channel, 0)
+        , PB_ARG_DEFAULT_NONE(broadcast_channel)
         , PB_ARG_DEFAULT_OBJ(observe_channels, mp_const_empty_tuple_obj)
         #endif
         );
@@ -76,11 +75,11 @@ static mp_obj_t hubs_PrimeHub_make_new(const mp_obj_type_t *type, size_t n_args,
     #if PYBRICKS_PY_COMMON_BLE
     self->ble = pb_type_BLE_new(broadcast_channel_in, observe_channels_in);
     #endif
-    self->buttons = pb_type_Keypad_obj_new(pb_type_primehub_button_pressed);
+    self->buttons = pb_type_Keypad_obj_new(MP_OBJ_FROM_PTR(self), pb_type_primehub_button_pressed);
     self->charger = pb_type_Charger_obj_new();
     self->display = pb_type_LightMatrix_obj_new(pbsys_hub_light_matrix);
     self->imu = pb_type_IMU_obj_new(MP_OBJ_FROM_PTR(self), top_side_in, front_side_in);
-    self->light = common_ColorLight_internal_obj_new(pbsys_status_light);
+    self->light = common_ColorLight_internal_obj_new(pbsys_status_light_main);
     self->speaker = mp_call_function_0(MP_OBJ_FROM_PTR(&pb_type_Speaker));
     self->system = MP_OBJ_FROM_PTR(&pb_type_System);
     return MP_OBJ_FROM_PTR(self);

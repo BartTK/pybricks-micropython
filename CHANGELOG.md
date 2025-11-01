@@ -5,6 +5,165 @@
 ## [Unreleased]
 
 ### Added
+- Experimental support for USB connectivity on SPIKE Prime ([pybricks-micropython#208]).
+- Initial support for `pybricks.iodevices.UARTDevice` ([support#220]). 
+- Enabled previously hidden support for multiple code
+  slots ([pybricks-micropython#264], [pybricks-micropython#312]). A new
+  (unreleased) version of Pybricks Code is needed to use this.
+
+### Changed
+- Extensive overhaul of UART and port drivers on all hubs. This affects all
+  official LEGO sensors on all hubs.
+- LWP3Device.read() now gives buffered notification values instead of blocking
+  until a value arrives.
+
+### Fixed
+- Reduced hanging when broadcasting and observing at the same time with Technic
+  Hub ([support#2206]).
+- Fixed hub shutting down immediately after disconnecting Bluetooth when
+  no program had run for a while.
+
+[support#220]: https://github.com/pybricks/support/issues/220
+[support#2206]: https://github.com/pybricks/support/issues/2206
+[pybricks-micropython#208]: https://github.com/pybricks/pybricks-micropython/pull/208
+[pybricks-micropython#264]: https://github.com/pybricks/pybricks-micropython/pull/264
+[pybricks-micropython#312]: https://github.com/pybricks/pybricks-micropython/pull/312
+
+## [3.6.1] - 2025-03-11
+
+### Fixed
+
+- Fixed overflow in saturation and value for ambient color measurement. This
+  can occur with very bright screens ([pybricks-micropython#295]).
+- Fixed drive base stall condition not being raised if the right motor is
+  individually controlled and then stalled ([pybricks-micropython#294]).
+
+[pybricks-micropython#294]: https://github.com/pybricks/pybricks-micropython/pull/294
+[pybricks-micropython#295]: https://github.com/pybricks/pybricks-micropython/pull/295
+
+## [3.6.0] - 2025-03-02
+
+### Changed
+- Bump version from beta to 3.6.0 without additional changes.
+
+## [3.6.0b5] - 2025-02-26
+
+### Changed
+- Changed order of the `DriveBase.arc` method parameters. This method has not
+  yet been released or documented, so this is not a breaking change ([support#1157]).
+- Reduced voltage threshold at which the charging light goes from red to green
+  to indicate that the battery is full from 8300 to 8190 mV ([pybricks-micropython#292]).
+- Simplified API for `hub.imu.up()` and `hub.imu.tilt()` to only use a single
+  `calibrated` keyword argument instead of separate `use_gyro` options. This
+  had not been released yet so is not a breaking change.
+
+## [3.6.0b4] - 2025-02-14
+
+### Fixed
+- Fixed low-battery warning on boot ([pybricks-micropython#292]) when the
+  voltage is not actually low.
+- Fixed light indidicator always briefly showing green when just plugged in
+  or after rebooting ([pybricks-micropython#292]) even if battery is not
+  actually full.
+
+## [3.6.0b3] - 2025-02-14
+
+### Added
+
+- Added optional `calibrated=True` parameter to `acceleration()` and `up()` and
+  `angular_velocity()` and `rotation` methods of the IMU ([support#943]).
+- Implemented `hub.imu.orientation()` to give the rotation matrix of the hub or
+  robot with respect to the inertial frame.
+- Added calibration parameters that can be set for angular velocity offset and
+  scale and acceleration offset and scale.
+- Added `hub.system.reset_storage` to restore storage and settings to default
+  state.
+- Replaced `update_heading_correction` with `_imu_calibrate.py` for 3D
+  calibration ([support#1907]).
+
+### Changed
+- Enabled UTF-8 support for `str` objects.
+- The method `DriveBase.angle()` now returns a float ([support#1844]). This
+  makes it properly equivalent to `hub.imu.heading`.
+- Re-implemented tilt using the gyro data by default. Pure accelerometer tilt
+  can still be obtained with `hub.imu.tilt(calibrated=False)`.
+- Re-implemented `hub.imu.heading()` to use optionally use the projection of 3D
+  orientation to improve performance when the hub is lifted off the ground.
+  The 1D-based heading remains the default for now.
+- Change return value of connected() property from bool to int using the value
+  of pbdrv_usb_get_bcd(). This will allow pro users to be able to tell if they
+  have a "nonstandard" charger that could prevent proper
+  charging ([pybricks-micropython#274]).
+- When the Bluetooth button is selected to stop the program, don't disable the
+  stop button while the hub menu is active ([support#1975]).
+
+### Fixed
+- Fixed battery charging timeout if it didn't reach 100% after about 6 hours.
+  This is same behavior observed in official firmware. ([pybricks-micropython#292]).
+- Fixed inconsistent battery level reported to user. Now it uses the same value
+  as used by the light indicator ([support#2055]). 
+- Fixed `DriveBase.angle()` getting an incorrectly rounded gyro value, which
+  could cause `turn(360)` to be off by a degree ([support#1844]).
+- Fixed `hub` silently ignoring non-orthogonal base axis when it should raise.
+- Fixed not handling negative duration in `Speaker.beep()` ([support#1996]).
+
+### Removed
+- Removed ev3dev and ev3rt-based CI builds. Pybricks 2.0 on ev3dev will
+  continue to be available as a separate download.
+
+[pybricks-micropython#274]: https://github.com/pybricks/pybricks-micropython/pull/274
+[pybricks-micropython#292]: https://github.com/pybricks/pybricks-micropython/pull/292
+[support#943]: https://github.com/pybricks/support/issues/943
+[support#1886]: https://github.com/pybricks/support/issues/1886
+[support#1844]: https://github.com/pybricks/support/issues/1844
+[support#1907]: https://github.com/pybricks/support/issues/1907
+[support#1975]: https://github.com/pybricks/support/issues/1975
+[support#1996]: https://github.com/pybricks/support/issues/1996
+[support#2055]: https://github.com/pybricks/support/issues/2055
+
+## [3.6.0b2] - 2024-10-15
+
+### Added
+
+- Allow color objects to be iterated as h, s, v = color_object or indexed
+  as color_object[0]. This allows access to these properties in block
+  coding ([support#1661]).
+- Added `observe_enable` to the hub `BLE` class to selectively turn observing
+  on and off, just like you can with broadcasting ([support#1806]).
+- Added `hub.system.info()` method with hub status flags ([support#1496]) and
+  value representing how the program was started.
+
+### Changed
+
+- Relaxed speed limit from 1000 deg/s to 1200 deg/s for external Boost
+  motor ([support#1623]).
+- Make `broadcast_channel` optional instead of defaulting to `0`.
+
+### Fixed
+- Fixed persistent data not being deleted when swapping
+  from `3.6.0b1` to `3.5.0` and back to `3.6.0b1` ([support#1846]).
+- Fixed controls stopping if `use_gyro` is called again with the same
+  argument as already active ([support#1858]).
+- Fixed lockup and reboot with f-strings and slice allocations in tight
+  loops ([support#1668]).
+- Fixed program restarting if the stop button was held to end the program
+  without an exception ([support#1863]).
+- Fixed program lockup when restarting a hub light or light matrix animation
+  at exact multiples of its animation interval ([support#1295]).
+
+[support#1295]: https://github.com/pybricks/support/issues/1295
+[support#1496]: https://github.com/pybricks/support/issues/1496
+[support#1623]: https://github.com/pybricks/support/issues/1623
+[support#1661]: https://github.com/pybricks/support/issues/1661
+[support#1668]: https://github.com/pybricks/support/issues/1668
+[support#1806]: https://github.com/pybricks/support/issues/1806
+[support#1846]: https://github.com/pybricks/support/issues/1846
+[support#1858]: https://github.com/pybricks/support/issues/1858
+[support#1863]: https://github.com/pybricks/support/issues/1863
+
+## [3.6.0b1] - 2024-09-24
+
+### Added
 
 - Allow Bluetooth to be toggled off and on with the Bluetooth button on the
   Prime Hub and the Inventor Hub ([support#1615]), and have this state persist
@@ -13,9 +172,21 @@
   correction of the `hub.imu.heading()` value ([support#1678]).
 - Added `update_heading_correction` to interactively set the heading
   correction value ([support#1678]).
+- Added optional one byte program identifier to program start command.
+  For now, this is added to start various builtin
+  programs, but it prepares for the ability to start different downloaded
+  programs too  ([pybricks-micropython#254]).
+- Added one byte program identifier to the hub status report to the host.
+- Added interface and implementation for storing and selecting multiple code
+  slots on the Prime Hub and Inventor Hub.
+- Added ability to set distance and angle in `DriveBase.reset()`. If the
+  DriveBase is using the gyro, it will be set to the same angle. ([support#1617]).
+- Added `DriveBase.arc` method with more intuitive parameters to drive along
+  an arc, to eventually replace `DriveBase.curve` ([support#1157]).
 
 ### Changed
 
+- Changed protocol to Pybricks Profile v1.4.0.
 - When upgrading the firmware to a new version, the user program will now
   be erased. This avoids issues with incompatible program files ([support#1622]).
 - The `angular_velocity_threshold`, and `acceleration_threshold` settings
@@ -24,15 +195,42 @@
   the hub ([pybricks-micropython#250]).
 - Improved font for the digits ``0--9`` when displaying them
   with `hub.display.char(str(x))` ([pybricks-micropython#253]).
+- On SPIKE Prime Hub and Robot Inventor Hub, moved Bluetooth indications to
+  the Bluetooth light. Only warning lights will be shown on the main button
+  light. See ([support#1716]) and ([pybricks-micropython#261]).
+- Allow gyro calibration only while all motors are coasting ([support#1840]) to
+  prevent recalibration during very steady moves ([support#1687])
+- Reduced default angular velocity stationary threshold from an undocumented
+  5 deg/s to 2 deg/s to reduce unwanted calibration while moving ([support#1105]).
+- If `imu.reset_heading()` is called while a drive base is actively using the
+  gyro, an exception will be raised ([support#1818]).
 
 ### Fixed
 - Fixed not able to connect to new Technic Move hub with `LWP3Device()`.
+- Removed `gc_collect()` from `tools.run_task()` loop to fix unwanted delays.
+- Fixed `await wait(0)` never yielding, so parallel tasks could lock up ([support#1429]).
+
+### Removed
+- Removed `loop_time` argument to `pybricks.tools.run_task` as this wasn't
+  having the desired effect, and would cause loop round trips to take `10 ms`
+  for every `await wait(1)` ([support#1460]). This was an undocumented feature.
 
 [pybricks-micropython#250]: https://github.com/pybricks/pybricks-micropython/pull/250
 [pybricks-micropython#253]: https://github.com/pybricks/pybricks-micropython/pull/253
+[pybricks-micropython#254]: https://github.com/pybricks/pybricks-micropython/pull/254
+[pybricks-micropython#261]: https://github.com/pybricks/pybricks-micropython/pull/261
+[support#1105]: https://github.com/pybricks/support/issues/1105
+[support#1157]: https://github.com/pybricks/support/issues/1157
+[support#1429]: https://github.com/pybricks/support/issues/1429
+[support#1460]: https://github.com/pybricks/support/issues/1460
 [support#1615]: https://github.com/pybricks/support/issues/1615
+[support#1617]: https://github.com/pybricks/support/issues/1617
 [support#1622]: https://github.com/pybricks/support/issues/1622
 [support#1678]: https://github.com/pybricks/support/issues/1678
+[support#1687]: https://github.com/pybricks/support/issues/1687
+[support#1716]: https://github.com/pybricks/support/issues/1716
+[support#1818]: https://github.com/pybricks/support/issues/1818
+[support#1840]: https://github.com/pybricks/support/issues/1840
 
 ## [3.5.0] - 2024-04-11
 
@@ -901,7 +1099,14 @@ Prerelease changes are documented at [support#48].
 
 
 <!-- diff links for headers -->
-[Unreleased]: https://github.com/pybricks/pybricks-micropython/compare/v3.5.0...HEAD
+[Unreleased]: https://github.com/pybricks/pybricks-micropython/compare/v3.6.1...HEAD
+[3.6.1]: https://github.com/pybricks/pybricks-micropython/compare/v3.6.0...v3.6.1
+[3.6.0]: https://github.com/pybricks/pybricks-micropython/compare/v3.6.0b5...v3.6.0
+[3.6.0b5]: https://github.com/pybricks/pybricks-micropython/compare/v3.6.0b4...v3.6.0b5
+[3.6.0b4]: https://github.com/pybricks/pybricks-micropython/compare/v3.6.0b3...v3.6.0b4
+[3.6.0b3]: https://github.com/pybricks/pybricks-micropython/compare/v3.6.0b2...v3.6.0b3
+[3.6.0b2]: https://github.com/pybricks/pybricks-micropython/compare/v3.6.0b1...v3.6.0b2
+[3.6.0b1]: https://github.com/pybricks/pybricks-micropython/compare/v3.5.0...v3.6.0b1
 [3.5.0]: https://github.com/pybricks/pybricks-micropython/compare/v3.5.0b2...v3.5.0
 [3.5.0b2]: https://github.com/pybricks/pybricks-micropython/compare/v3.5.0b1...v3.5.0b2
 [3.5.0b1]: https://github.com/pybricks/pybricks-micropython/compare/v3.4.0...v3.5.0b1

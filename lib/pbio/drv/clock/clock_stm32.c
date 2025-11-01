@@ -8,6 +8,8 @@
 
 #if PBDRV_CONFIG_CLOCK_STM32
 
+#include <pbio/os.h>
+
 #include STM32_H
 
 // NB: pbdrv_clock_ticks is intended to be private, but making it static
@@ -65,7 +67,7 @@ uint32_t pbdrv_clock_get_us(void) {
     return pbdrv_clock_get_time(1000);
 }
 
-void pbdrv_clock_delay_us(uint32_t us) {
+void pbdrv_clock_busy_delay_us(uint32_t us) {
     uint32_t start = pbdrv_clock_get_us();
     while (pbdrv_clock_get_us() - start < us) {
     }
@@ -80,6 +82,7 @@ void SysTick_Handler(void) {
     SysTick->CTRL;
 
     etimer_request_poll();
+    pbio_os_request_poll();
 }
 
 uint32_t HAL_GetTick(void) {
@@ -89,6 +92,8 @@ uint32_t HAL_GetTick(void) {
 // We provide our own version of HAL_Delay that calls __WFI while waiting,
 // and works when interrupts are disabled.  This function is intended to be
 // used only by the ST HAL functions.
+//
+// TODO: Is anything actually still calling this?
 void HAL_Delay(uint32_t Delay) {
     if (__get_PRIMASK() == 0) {
         // IRQs enabled, so can use systick counter to do the delay

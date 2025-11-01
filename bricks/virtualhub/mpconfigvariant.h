@@ -1,50 +1,53 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2022-2023 The Pybricks Authors
 
-#define PYBRICKS_HUB_CLASS_NAME         (MP_QSTR_VirtualHub)
+#define PYBRICKS_HUB_CLASS_NAME                 (MP_QSTR_VirtualHub)
 
-#define PYBRICKS_HUB_NAME               "virtualhub"
-#define PYBRICKS_HUB_VIRTUALHUB         (1)
+#define PYBRICKS_HUB_NAME                       "virtualhub"
+#define PYBRICKS_HUB_VIRTUALHUB                 (1)
 
 // Pybricks modules
-#define PYBRICKS_PY_COMMON              (1)
-#define PYBRICKS_PY_COMMON_BLE          (0)
-#define PYBRICKS_PY_COMMON_CHARGER      (1)
-#define PYBRICKS_PY_COMMON_COLOR_LIGHT  (1)
-#define PYBRICKS_PY_COMMON_CONTROL      (1)
-#define PYBRICKS_PY_COMMON_IMU          (0)
-#define PYBRICKS_PY_COMMON_KEYPAD       (1)
-#define PYBRICKS_PY_COMMON_KEYPAD_HUB_BUTTONS (1)
-#define PYBRICKS_PY_COMMON_LIGHT_ARRAY  (1)
-#define PYBRICKS_PY_COMMON_LIGHT_MATRIX (0)
-#define PYBRICKS_PY_COMMON_LOGGER       (1)
-#define PYBRICKS_PY_COMMON_LOGGER_REAL_FILE (1)
-#define PYBRICKS_PY_COMMON_MOTORS       (1)
-#define PYBRICKS_PY_COMMON_SPEAKER      (0)
-#define PYBRICKS_PY_COMMON_SYSTEM       (1)
-#define PYBRICKS_PY_EV3DEVICES          (0)
-#define PYBRICKS_PY_EXPERIMENTAL        (1)
-#define PYBRICKS_PY_HUBS                (1)
-#define PYBRICKS_PY_IODEVICES           (1)
-#define PYBRICKS_PY_MEDIA               (1)
-#define PYBRICKS_PY_MEDIA_EV3DEV        (0)
-#define PYBRICKS_PY_NXTDEVICES          (0)
-#define PYBRICKS_PY_PARAMETERS          (1)
-#define PYBRICKS_PY_PARAMETERS_BUTTON   (1)
-#define PYBRICKS_PY_PARAMETERS_ICON     (1)
-#define PYBRICKS_PY_PUPDEVICES          (1)
-#define PYBRICKS_PY_PUPDEVICES_REMOTE   (0)
-#define PYBRICKS_PY_DEVICES             (1)
-#define PYBRICKS_PY_ROBOTICS            (1)
-#define PYBRICKS_PY_ROBOTICS_DRIVEBASE_SPIKE (0)
-#define PYBRICKS_PY_TOOLS               (1)
-#define PYBRICKS_PY_TOOLS_HUB_MENU      (0)
+#define PYBRICKS_PY_COMMON                      (1)
+#define PYBRICKS_PY_COMMON_BLE                  (0)
+#define PYBRICKS_PY_COMMON_CHARGER              (1)
+#define PYBRICKS_PY_COMMON_COLOR_LIGHT          (1)
+#define PYBRICKS_PY_COMMON_CONTROL              (1)
+#define PYBRICKS_PY_COMMON_IMU                  (0)
+#define PYBRICKS_PY_COMMON_KEYPAD               (1)
+#define PYBRICKS_PY_COMMON_KEYPAD_HUB_BUTTONS   (1)
+#define PYBRICKS_PY_COMMON_LIGHT_ARRAY          (1)
+#define PYBRICKS_PY_COMMON_LIGHT_MATRIX         (0)
+#define PYBRICKS_PY_COMMON_LOGGER               (1)
+#define PYBRICKS_PY_COMMON_LOGGER_REAL_FILE     (1)
+#define PYBRICKS_PY_COMMON_MOTORS               (1)
+#define PYBRICKS_PY_COMMON_SPEAKER              (0)
+#define PYBRICKS_PY_COMMON_SYSTEM               (1)
+#define PYBRICKS_PY_EV3DEVICES                  (0)
+#define PYBRICKS_PY_EXPERIMENTAL                (1)
+#define PYBRICKS_PY_HUBS                        (1)
+#define PYBRICKS_PY_IODEVICES                   (0)
+#define PYBRICKS_PY_NXTDEVICES                  (0)
+#define PYBRICKS_PY_PARAMETERS                  (1)
+#define PYBRICKS_PY_PARAMETERS_BUTTON           (1)
+#define PYBRICKS_PY_PARAMETERS_ICON             (1)
+#define PYBRICKS_PY_PARAMETERS_IMAGE            (0)
+#define PYBRICKS_PY_PUPDEVICES                  (1)
+#define PYBRICKS_PY_PUPDEVICES_REMOTE           (0)
+#define PYBRICKS_PY_DEVICES                     (1)
+#define PYBRICKS_PY_ROBOTICS                    (1)
+#define PYBRICKS_PY_ROBOTICS_DRIVEBASE_SPIKE    (0)
+#define PYBRICKS_PY_TOOLS                       (1)
+#define PYBRICKS_PY_TOOLS_HUB_MENU              (0)
+#define PYBRICKS_PY_TOOLS_APP_DATA              (1)
 
 // Pybricks options
 #define PYBRICKS_OPT_COMPILER                   (1)
+#define PYBRICKS_OPT_USE_STACK_END_AS_TOP       (1)
+#define PYBRICKS_OPT_RAW_REPL                   (0)
 #define PYBRICKS_OPT_FLOAT                      (1)
 #define PYBRICKS_OPT_TERSE_ERR                  (0)
-#define PYBRICKS_OPT_EXTRA_MOD                  (1)
+#define PYBRICKS_OPT_EXTRA_LEVEL1               (1)
+#define PYBRICKS_OPT_EXTRA_LEVEL2               (0)
 #define PYBRICKS_OPT_CUSTOM_IMPORT              (1)
 
 // Upstream MicroPython options
@@ -53,24 +56,24 @@
 #define MICROPY_DEBUG_PRINTERS                  (1)
 #define MICROPY_MODULE_ATTR_DELEGATION          (1)
 #define MICROPY_MODULE_BUILTIN_INIT             (1)
+#define MICROPY_MODULE_BUILTIN_SUBPACKAGES      (1)
 #define MICROPY_PY_MICROPYTHON_MEM_INFO         (1)
 #define MICROPY_PY_BUILTINS_HELP                (1)
 #define MICROPY_PY_BUILTINS_HELP_MODULES        (1)
 #define MICROPY_PY_SYS_SETTRACE                 (1)
-#define MICROPY_PY_UERRNO                       (1)
-#define MICROPY_PY_UOS                          (1)
-#define MICROPY_PY_UOS_GETENV_PUTENV_UNSETENV   (1)
-#define MICROPY_PY_UOS_INCLUDEFILE              "ports/unix/moduos.c"
-#define MICROPY_PY_URANDOM_EXTRA_FUNCS          (1)
+#define MICROPY_PY_ERRNO                        (1)
+#define MICROPY_PY_OS                           (1)
+#define MICROPY_PY_OS_GETENV_PUTENV_UNSETENV    (1)
+#define MICROPY_PY_OS_INCLUDEFILE               "ports/unix/modos.c"
+#define MICROPY_PY_RANDOM_EXTRA_FUNCS           (1)
 #define MICROPY_PY_BUILTINS_SLICE_INDICES       (1)
 #define MICROPY_PERSISTENT_CODE_SAVE            (1)
 #define MICROPY_STREAMS_POSIX_API               (1)
 #define MICROPY_HELPER_REPL                     (1)
 #define MICROPY_KBD_EXCEPTION                   (1)
 
-// REVISIT: This list currently matches the stm32 builds. We may consider
-// adding more like the ev3dev build.
-#define MICROPY_PY_UERRNO_LIST \
+// REVISIT: This list currently matches the stm32 builds.
+#define MICROPY_PY_ERRNO_LIST \
     X(EPERM) \
     X(EIO) \
     X(EBUSY) \
@@ -95,17 +98,17 @@
 } while (0)
 
 #define MICROPY_VM_HOOK_LOOP do { \
-        extern void pb_virtualhub_poll(void); \
-        pb_virtualhub_poll(); \
+        extern bool pbio_os_run_processes_once(void); \
+        pbio_os_run_processes_once(); \
 } while (0);
 
 #define MICROPY_GC_HOOK_LOOP(i) do { \
-        if ((i & 0xf) == 0) { \
+        if (((i) & 0xf) == 0) { \
             MICROPY_VM_HOOK_LOOP \
         } \
 } while (0)
 
 #define MICROPY_EVENT_POLL_HOOK do { \
-        extern void pb_virtualhub_event_poll(void); \
-        pb_virtualhub_event_poll(); \
+        extern void pb_event_poll_hook(void); \
+        pb_event_poll_hook(); \
 } while (0);

@@ -11,68 +11,63 @@
 
 #include <stdint.h>
 
+#include "../sys/storage_data.h"
+
 #include <pbdrv/config.h>
 #include <pbio/error.h>
-
-#include <contiki.h>
+#include <pbio/os.h>
 
 #if PBDRV_CONFIG_BLOCK_DEVICE
 
 /**
- * Read data from a storage device.
+ * Gets the block device data.
  *
- * On systems with data storage on an external chip, this is implemented with
- * non-blocking I/O operations.
- *
- * On systems where data is memory accessible, this may be implemented with
- * a single (blocking) memcpy operation.
- *
- * @param [in] pt       Protothread to run this function in.
- * @param [in] offset   Offset from the base address for this block device.
- * @param [in] buffer   Buffer to read the data into.
- * @param [in] size     How many bytes to read.
- * @param [out] err     ::PBIO_SUCCESS on success.
- *                      ::PBIO_INVALID_ARGUMENT if offset + size is too big.
- *                      ::PBIO_ERROR_BUSY (driver-specific error)
- *                      ::PBIO_ERROR_TIMEDOUT (driver-specific error)
- *                      ::PBIO_ERROR_IO (driver-specific error)
+ * @param [out] disk    Pointer to the loaded data.
+ * @return              ::PBIO_SUCCESS on success.
+ *                      ::PBIO_ERROR_AGAIN if the RAM disk is still loading.
+ *                      ::PBIO_ERROR_INVALID_ARG if the detected size was invalid.
+ *                      ::PBIO_ERROR_IO (driver-specific error), though boot
+ *                        does not proceed if this happens.
  */
-PT_THREAD(pbdrv_block_device_read(struct pt *pt, uint32_t offset, uint8_t *buffer, uint32_t size, pbio_error_t *err));
+pbio_error_t pbdrv_block_device_get_data(pbsys_storage_data_map_t **data);
 
 /**
- * Store data on storage device, starting from the base address.
- *
- * This erases as many sectors as needed for the given size prior to writing.
+ * Writes the "RAM Disk" to storage. May erase entire disk prior to writing.
  *
  * On systems with data storage on an external chip, this is implemented with
- * non-blocking I/O operations.
+ * non-blocking I/O operations. On systems where data is saved on internal
+ * flash, this may be partially implemented with blocking operations, so this
+ * function should only be used when this is permissible.
  *
- * On systems where data is saved on internal flash, this may be partially
- * implemented with blocking operations, so this function should only be used
- * when this is permissible.
- *
- * @param [in] pt       Protothread to run this function in.
- * @param [in] buffer   Data buffer to write.
+ * @param [in] state    Protothread state.
  * @param [in] size     How many bytes to write.
- * @param [out] err     ::PBIO_SUCCESS on success.
+ * @return              ::PBIO_SUCCESS on success.
  *                      ::PBIO_INVALID_ARGUMENT if size is too big.
  *                      ::PBIO_ERROR_BUSY (driver-specific error)
  *                      ::PBIO_ERROR_TIMEDOUT (driver-specific error)
  *                      ::PBIO_ERROR_IO (driver-specific error)
  */
-PT_THREAD(pbdrv_block_device_store(struct pt *pt, uint8_t *buffer, uint32_t size, pbio_error_t *err));
+pbio_error_t pbdrv_block_device_write_all(pbio_os_state_t *state, uint32_t used_data_size);
+
+/**
+ * Gets the maximum writable size for user data that can be saved to the device.
+ *
+ * @return   Size in bytes.
+ */
+uint32_t pbdrv_block_device_get_writable_size(void);
 
 #else
 
-static inline PT_THREAD(pbdrv_block_device_read(struct pt *pt, uint32_t offset, uint8_t *buffer, uint32_t size, pbio_error_t *err)) {
-    PT_BEGIN(pt);
-    *err = PBIO_ERROR_NOT_SUPPORTED;
-    PT_END(pt);
+static inline pbio_error_t pbdrv_block_device_get_data(pbsys_storage_data_map_t **data) {
+    return PBIO_ERROR_NOT_SUPPORTED;
 }
-static inline PT_THREAD(pbdrv_block_device_store(struct pt *pt, uint8_t *buffer, uint32_t size, pbio_error_t *err)) {
-    PT_BEGIN(pt);
-    *err = PBIO_ERROR_NOT_SUPPORTED;
-    PT_END(pt);
+
+static inline pbio_error_t pbdrv_block_device_write_all(pbio_os_state_t *state, uint32_t used_data_size) {
+    return PBIO_ERROR_NOT_SUPPORTED;
+}
+
+static inline uint32_t pbdrv_block_device_get_writable_size(void) {
+    return 0;
 }
 
 #endif

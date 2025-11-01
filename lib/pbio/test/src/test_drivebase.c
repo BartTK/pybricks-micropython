@@ -23,11 +23,10 @@
 #include <pbio/logger.h>
 #include <pbio/int_math.h>
 #include <pbio/motor_process.h>
+#include <pbio/port_interface.h>
 #include <pbio/servo.h>
 #include <test-pbio.h>
 
-#include "../src/processes.h"
-#include "../drv/core.h"
 #include "../drv/clock/clock_test.h"
 #include "../drv/motor_driver/motor_driver_virtual_simulation.h"
 
@@ -37,9 +36,8 @@ static PT_THREAD(test_drivebase_basics(struct pt *pt)) {
 
     static pbio_servo_t *srv_left;
     static pbio_servo_t *srv_right;
-    static pbdrv_legodev_dev_t *legodev_left;
-    static pbdrv_legodev_dev_t *legodev_right;
     static pbio_drivebase_t *db;
+    static pbio_port_t *port;
 
     static int32_t drive_distance;
     static int32_t drive_speed;
@@ -57,28 +55,16 @@ static PT_THREAD(test_drivebase_basics(struct pt *pt)) {
     static pbio_dcmotor_actuation_t actuation;
     static int32_t voltage;
 
-    // Start motor driver simulation process.
-    pbdrv_motor_driver_init_manual();
-
     PT_BEGIN(pt);
 
-    // Wait for motor simulation process to be ready.
-    while (pbdrv_init_busy()) {
-        PT_YIELD(pt);
-    }
-
-    // Start motor control process manually.
-    pbio_motor_process_start();
-
     // Initialize the servos.
-
-    pbdrv_legodev_type_id_t id = PBDRV_LEGODEV_TYPE_ID_ANY_ENCODED_MOTOR;
-    tt_uint_op(pbdrv_legodev_get_device(PBIO_PORT_ID_A, &id, &legodev_left), ==, PBIO_SUCCESS);
-    tt_uint_op(pbio_servo_get_servo(legodev_left, &srv_left), ==, PBIO_SUCCESS);
+    lego_device_type_id_t id = LEGO_DEVICE_TYPE_ID_ANY_ENCODED_MOTOR;
+    tt_uint_op(pbio_port_get_port(PBIO_PORT_ID_A, &port), ==, PBIO_SUCCESS);
+    tt_uint_op(pbio_port_get_servo(port, &id, &srv_left), ==, PBIO_SUCCESS);
     tt_uint_op(pbio_servo_setup(srv_left, id, PBIO_DIRECTION_COUNTERCLOCKWISE, 1000, true, 0), ==, PBIO_SUCCESS);
-    id = PBDRV_LEGODEV_TYPE_ID_ANY_ENCODED_MOTOR;
-    tt_uint_op(pbdrv_legodev_get_device(PBIO_PORT_ID_B, &id, &legodev_right), ==, PBIO_SUCCESS);
-    tt_uint_op(pbio_servo_get_servo(legodev_right, &srv_right), ==, PBIO_SUCCESS);
+    tt_uint_op(pbio_port_get_port(PBIO_PORT_ID_B, &port), ==, PBIO_SUCCESS);
+    tt_uint_op(pbio_port_get_servo(port, &id, &srv_right), ==, PBIO_SUCCESS);
+
     tt_uint_op(pbio_servo_setup(srv_right, id, PBIO_DIRECTION_CLOCKWISE, 1000, true, 0), ==, PBIO_SUCCESS);
 
     // Set up the drivebase.
@@ -105,7 +91,7 @@ static PT_THREAD(test_drivebase_basics(struct pt *pt)) {
         turn_acceleration,
         turn_deceleration), ==, PBIO_ERROR_INVALID_ARG);
 
-    // Try to set invalid settings.
+    // Try to set valid settings.
     tt_uint_op(pbio_drivebase_set_drive_settings(db,
         200,
         drive_acceleration * 2,
@@ -183,7 +169,87 @@ end:
     PT_END(pt);
 }
 
+/**
+ * Creates a drivebase pair where one of the motors (C) is physically stalled at
+ * about +/- 150 degrees. Motor F can spin freely.
+ */
+static PT_THREAD(test_drivebase_stalling(struct pt *pt)) {
+
+    static struct timer timer;
+
+    static pbio_servo_t *srv_free;
+    static pbio_servo_t *srv_blocked;
+    static pbio_drivebase_t *db;
+    static pbio_port_t *port;
+
+    static int32_t drive_distance;
+    static int32_t drive_speed;
+    static int32_t turn_angle_start;
+    static int32_t turn_rate;
+
+    static bool stalled;
+    static uint32_t stall_duration;
+
+    static uint32_t delay;
+
+    PT_BEGIN(pt);
+
+    // Give simulator some time to start reporting data.
+    for (delay = 0; delay < 100; delay++) {
+        pbio_test_clock_tick(1);
+        PT_YIELD(pt);
+    }
+
+    // Initialize the servos.
+
+    lego_device_type_id_t id = LEGO_DEVICE_TYPE_ID_ANY_ENCODED_MOTOR;
+    tt_uint_op(pbio_port_get_port(PBIO_PORT_ID_F, &port), ==, PBIO_SUCCESS);
+    tt_uint_op(pbio_port_get_servo(port, &id, &srv_free), ==, PBIO_SUCCESS);
+    tt_uint_op(pbio_servo_setup(srv_free, id, PBIO_DIRECTION_COUNTERCLOCKWISE, 1000, true, 0), ==, PBIO_SUCCESS);
+    tt_uint_op(pbio_port_get_port(PBIO_PORT_ID_C, &port), ==, PBIO_SUCCESS);
+    tt_uint_op(pbio_port_get_servo(port, &id, &srv_blocked), ==, PBIO_SUCCESS);
+    tt_uint_op(pbio_servo_setup(srv_blocked, id, PBIO_DIRECTION_CLOCKWISE, 1000, true, 0), ==, PBIO_SUCCESS);
+
+    // Set up the drivebase.
+    tt_uint_op(pbio_drivebase_get_drivebase(&db, srv_free, srv_blocked, 56000, 112000), ==, PBIO_SUCCESS);
+    tt_uint_op(pbio_drivebase_get_state_user(db, &drive_distance, &drive_speed, &turn_angle_start, &turn_rate), ==, PBIO_SUCCESS);
+    tt_uint_op(pbio_drivebase_is_stalled(db, &stalled, &stall_duration), ==, PBIO_SUCCESS);
+    tt_want(!stalled);
+
+    // Try to drive straight. Should get stalled.
+    tt_uint_op(pbio_drivebase_drive_straight(db, 1000, PBIO_CONTROL_ON_COMPLETION_COAST_SMART), ==, PBIO_SUCCESS);
+    pbio_test_sleep_until(pbio_drivebase_is_stalled(db, &stalled, &stall_duration) == PBIO_SUCCESS && stalled);
+
+    // Stop. Now we should not be stalled any more.
+    tt_uint_op(pbio_drivebase_stop(db, PBIO_CONTROL_ON_COMPLETION_COAST), ==, PBIO_SUCCESS);
+    tt_uint_op(pbio_drivebase_is_stalled(db, &stalled, &stall_duration), ==, PBIO_SUCCESS);
+    tt_want(!stalled);
+
+    // Run the individual servos back to the start position.
+    tt_uint_op(pbio_servo_run_target(srv_free, 500, 0, PBIO_CONTROL_ON_COMPLETION_COAST), ==, PBIO_SUCCESS);
+    tt_uint_op(pbio_servo_run_target(srv_blocked, 500, 0, PBIO_CONTROL_ON_COMPLETION_COAST), ==, PBIO_SUCCESS);
+    pbio_test_sleep_until(pbio_control_is_done(&srv_free->control) && pbio_control_is_done(&srv_blocked->control));
+
+    // Stall the individual servos.
+    tt_uint_op(pbio_servo_run_target(srv_free, 500, 360, PBIO_CONTROL_ON_COMPLETION_COAST), ==, PBIO_SUCCESS);
+    tt_uint_op(pbio_servo_run_target(srv_blocked, 500, 360, PBIO_CONTROL_ON_COMPLETION_COAST), ==, PBIO_SUCCESS);
+    pbio_test_sleep_ms(&timer, 2000);
+
+    // The blocked motor should be stalled, the free motor not stalled, and the drivebase stalled.
+    tt_uint_op(pbio_servo_is_stalled(srv_blocked, &stalled, &stall_duration), ==, PBIO_SUCCESS);
+    tt_want(stalled);
+    tt_uint_op(pbio_servo_is_stalled(srv_free, &stalled, &stall_duration), ==, PBIO_SUCCESS);
+    tt_want(!stalled);
+    tt_uint_op(pbio_drivebase_is_stalled(db, &stalled, &stall_duration), ==, PBIO_SUCCESS);
+    tt_want(stalled);
+
+end:
+
+    PT_END(pt);
+}
+
 struct testcase_t pbio_drivebase_tests[] = {
-    PBIO_PT_THREAD_TEST(test_drivebase_basics),
+    PBIO_PT_THREAD_TEST_WITH_PBIO(test_drivebase_basics),
+    PBIO_PT_THREAD_TEST_WITH_PBIO(test_drivebase_stalling),
     END_OF_TESTCASES
 };

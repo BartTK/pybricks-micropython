@@ -57,7 +57,15 @@ for commit in pybricks.iter_commits(
 
     # update only required submodules
     pybricks.git.submodule("update", "--init", "micropython")
-    if args.hub in ["cityhub", "movehub", "technichub", "primehub", "essentialhub"]:
+    if args.hub in [
+        "cityhub",
+        "movehub",
+        "technichub",
+        "primehub",
+        "essentialhub",
+        "nxt",
+        "ev3",
+    ]:
         pybricks.submodule("micropython").module().git.submodule(
             "update", "--init", "lib/micropython-lib"
         )
@@ -66,7 +74,11 @@ for commit in pybricks.iter_commits(
         )
     if args.hub == "primehub" or args.hub == "essentialhub":
         pybricks.git.submodule("update", "--init", "--checkout", "lib/btstack")
-        pybricks.git.submodule("update", "--init", "--checkout", "lib/STM32_USB_Device_Library")
+        pybricks.git.submodule(
+            "update", "--init", "--checkout", "lib/STM32_USB_Device_Library"
+        )
+    if args.hub == "ev3":
+        pybricks.git.submodule("update", "--init", "--checkout", "lib/umm_malloc")
 
     # build the firmware
     subprocess.check_call(

@@ -130,11 +130,11 @@ uint32_t pbio_control_time_ms_to_ticks(uint32_t ms);
 uint32_t pbio_control_time_ticks_to_ms(uint32_t ticks);
 int32_t pbio_control_settings_ctl_to_app(const pbio_control_settings_t *s, int32_t input);
 int32_t pbio_control_settings_ctl_to_app_long(const pbio_control_settings_t *s, const pbio_angle_t *input);
+float pbio_control_settings_ctl_to_app_long_float(const pbio_control_settings_t *s, const pbio_angle_t *input);
 int32_t pbio_control_settings_app_to_ctl(const pbio_control_settings_t *s, int32_t input);
 void pbio_control_settings_app_to_ctl_long(const pbio_control_settings_t *s, int32_t input, pbio_angle_t *output);
 int32_t pbio_control_settings_actuation_ctl_to_app(int32_t input);
 int32_t pbio_control_settings_actuation_app_to_ctl(int32_t input);
-bool pbio_control_settings_time_is_later(uint32_t sample, uint32_t base);
 
 // Scale values by given constants:
 

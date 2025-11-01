@@ -13,7 +13,6 @@
 #include <pbio/button.h>
 #include <pbio/color.h>
 #include <pbio/light.h>
-#include <pbdrv/legodev.h>
 
 #include "py/obj.h"
 
@@ -23,11 +22,10 @@
 #include <pybricks/parameters/pb_type_button.h>
 #include <pybricks/pupdevices.h>
 #include <pybricks/tools.h>
-#include <pybricks/tools/pb_type_awaitable.h>
+#include <pybricks/tools/pb_type_async.h>
 #include <pybricks/common/pb_type_device.h>
 
 void pb_package_pybricks_init(bool import_all);
-void pb_package_pybricks_deinit(void);
 
 #if PYBRICKS_PY_COMMON_BLE
 mp_obj_t pb_type_BLE_new(mp_obj_t broadcast_channel_in, mp_obj_t observe_channels_in);
@@ -70,7 +68,7 @@ void pb_type_LightMatrix_display_char(pbio_light_matrix_t *light_matrix, mp_obj_
 
 #if PYBRICKS_PY_COMMON_KEYPAD
 // pybricks._common.KeyPad()
-mp_obj_t pb_type_Keypad_obj_new(pb_type_button_get_pressed_t get_pressed);
+mp_obj_t pb_type_Keypad_obj_new(mp_obj_t parent_obj, pb_type_button_get_pressed_t get_pressed);
 #endif
 
 // pybricks._common.Battery()
@@ -105,9 +103,11 @@ mp_obj_t common_Logger_obj_make_new(pbio_log_t *log, uint8_t num_values);
 
 // pybricks.common.DCMotor and pybricks.common.Motor
 typedef struct {
-    pb_type_device_obj_base_t device_base;
+    mp_obj_base_t base;
     pbio_servo_t *srv;
-    pbio_port_id_t port;
+    pbio_dcmotor_t *dcmotor;
+    pbio_port_id_t port_id;
+    pb_type_async_t *last_awaitable;
     #if PYBRICKS_PY_COMMON_MOTOR_MODEL
     mp_obj_t model;
     #endif

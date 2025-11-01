@@ -19,6 +19,7 @@
 #define PBDRV_CONFIG_BATTERY_ADC_TYPE               (1)
 
 #define PBDRV_CONFIG_BLOCK_DEVICE                   (1)
+#define PBDRV_CONFIG_BLOCK_DEVICE_RAM_SIZE          (7 * 1024)
 #define PBDRV_CONFIG_BLOCK_DEVICE_FLASH_STM32       (1)
 #define PBDRV_CONFIG_BLOCK_DEVICE_FLASH_STM32_SIZE  (4 * 1024) // Must match FLASH_USER_0 + FLASH_USER_1 in linker script
 
@@ -41,23 +42,13 @@
 #define PBDRV_CONFIG_GPIO_STM32F0                   (1)
 
 #define PBDRV_CONFIG_IOPORT                         (1)
-#define PBDRV_CONFIG_IOPORT_PUP                     (1)
-#define PBDRV_CONFIG_IOPORT_NUM_DEV                 (2)
-#define PBDRV_CONFIG_IOPORT_PUP_QUIRK_POWER_CYCLE   (0)
-#define PBDRV_CONFIG_IOPORT_DEBUG_UART              (0) // Doesn't work.
+#define PBDRV_CONFIG_IOPORT_HAS_ADC                 (0)
+#define PBDRV_CONFIG_IOPORT_NUM_DEV                 (4)
 
 #define PBDRV_CONFIG_LED                            (1)
 #define PBDRV_CONFIG_LED_NUM_DEV                    (1)
 #define PBDRV_CONFIG_LED_PWM                        (1)
 #define PBDRV_CONFIG_LED_PWM_NUM_DEV                (1)
-
-#define PBDRV_CONFIG_LEGODEV                        (1)
-#define PBDRV_CONFIG_LEGODEV_PUP                    (1)
-#define PBDRV_CONFIG_LEGODEV_PUP_NUM_INT_DEV        (2)
-#define PBDRV_CONFIG_LEGODEV_PUP_NUM_EXT_DEV        (2 - PBDRV_CONFIG_IOPORT_DEBUG_UART)
-#define PBDRV_CONFIG_LEGODEV_PUP_UART               (1)
-#define PBDRV_CONFIG_LEGODEV_MODE_INFO       (0) // Reduces build size by disabling some unused features of the protocol.
-#define PBDRV_CONFIG_LEGODEV_PUP_UART_NUM_DEV       (PBDRV_CONFIG_LEGODEV_PUP_NUM_EXT_DEV)
 
 #define PBDRV_CONFIG_MOTOR_DRIVER                   (1)
 #define PBDRV_CONFIG_MOTOR_DRIVER_NUM_DEV           (4)
@@ -74,8 +65,12 @@
 #define PBDRV_CONFIG_RESET_STM32_HAS_BLE_BOOTLOADER (1)
 
 #define PBDRV_CONFIG_UART                           (1)
+#define PBDRV_CONFIG_UART_DEBUG_FIRST_PORT          (0)
 #define PBDRV_CONFIG_UART_STM32F0                   (1)
 #define PBDRV_CONFIG_UART_STM32F0_NUM_UART          (2)
+
+#define PBDRV_CONFIG_STACK                          (1)
+#define PBDRV_CONFIG_STACK_EMBEDDED                 (1)
 
 #define PBDRV_CONFIG_WATCHDOG                       (1)
 #define PBDRV_CONFIG_WATCHDOG_STM32                 (1)
@@ -84,9 +79,7 @@
 #define PBDRV_CONFIG_HAS_PORT_B (1)
 #define PBDRV_CONFIG_HAS_PORT_C (1)
 #define PBDRV_CONFIG_HAS_PORT_D (1)
-
-#define PBDRV_CONFIG_FIRST_MOTOR_PORT       PBIO_PORT_ID_A
-#define PBDRV_CONFIG_LAST_MOTOR_PORT        PBIO_PORT_ID_D
+#define PBDRV_CONFIG_HAS_PORT_VCC_CONTROL           (1)
 
 #define PBDRV_CONFIG_SYS_CLOCK_RATE 48000000
 #define PBDRV_CONFIG_INIT_ENABLE_INTERRUPTS_ARM     (1)

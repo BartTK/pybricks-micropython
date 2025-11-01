@@ -132,13 +132,29 @@ int32_t pbio_angle_to_low_res(const pbio_angle_t *a, int32_t scale) {
         return 0;
     }
 
-    // Scale down rotations component.
+    // Scale down rotations component. NB: Truncates, does not round.
     int32_t rotations_component = pbio_int_math_mult_then_div(a->rotations, MDEG_PER_ROT, scale);
 
     // Scale down millidegree component, rounded to nearest ouput unit.
     int32_t millidegree_component = (a->millidegrees + pbio_int_math_sign(a->millidegrees) * scale / 2) / scale;
 
     return rotations_component + millidegree_component;
+}
+
+/**
+ * Scales down high resolution angle to floating point value.
+ *
+ * @param [out]  a       Angle a.
+ * @param [in]   scale   Ratio between high resolution angle and input.
+ */
+float pbio_angle_to_low_res_float(const pbio_angle_t *a, float scale) {
+
+    // Fail safely on zero division.
+    if (scale < 1) {
+        return 0;
+    }
+
+    return a->rotations * (MDEG_PER_ROT / scale) + a->millidegrees / scale;
 }
 
 /**

@@ -6,18 +6,16 @@ This is the recommended development environment used by the Pybricks maintainers
 
 ### Requirements
 
-- Ubuntu 22.04 (Jammy Jellyfish)
+- Ubuntu 24.04
 - [Git SCM][git] any recent-ish version
 - [VS Code][vscode] latest version
-- [Python][python] v3.10.x
-- [Poetry][poetry] v1.x
-- [Uncrustify][uncrustify] v0.71.x
-- [GNU ARM Embedded Toolchain][arm-gcc] v10-2020-q4
+- [Python][python] v3.12.x
+- [Poetry][poetry] v2.x
+- [GNU ARM Embedded Toolchain][arm-gcc] v13.x
 - [GNU GCC][gcc] for host operating system
 - [GNU Make][make]
 
 Optional:
-- [Docker][docker] (only needed if building for ev3dev)
 - [Emscripten][emsdk] v1.39.x (only needed if building mpy-cross JavaScript package)
 - [Yarn][yarn] v1.x (only needed if building JavaScript packages)
 
@@ -25,11 +23,9 @@ Optional:
 [vscode]: https://code.visualstudio.com/Download
 [python]: https://www.python.org/downloads/
 [poetry]: https://python-poetry.org/docs/
-[uncrustify]: http://uncrustify.sourceforge.net/
-[arm-gcc]: https://developer.arm.com/tools-and-software/open-source-software/developer-tools/gnu-toolchain/gnu-rm/downloads
+[arm-gcc]: https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads
 [gcc]: https://gcc.gnu.org/
 [make]: https://www.gnu.org/software/make/
-[docker]: https://docs.docker.com/engine/install/ubuntu/
 [emsdk]: https://emscripten.org/docs/getting_started/downloads.html
 [yarn]: https://classic.yarnpkg.com/en/docs/install
 
@@ -63,15 +59,12 @@ Then install tools like this:
 
 #### Ubuntu
 
-Some of the prerequisites are available as Debian packages. The correct version
-of `uncrustify` is available via the Pybricks PPA. The `build-essential` package
-gets the GCC compiler for the host system and Make.
+Some of the prerequisites are available as Debian packages.
 
-    sudo apt-add-repository ppa:pybricks/ppa
     sudo apt update
-    sudo apt install git python3 uncrustify build-essential
+    sudo apt install git python3 build-essential gcc-arm-none-eabi
 
-Other tools (VS Code, Poetry, ARM Embedded Toolchain, Docker) can be installed
+Other tools (VS Code, Poetry, Docker) can be installed
 via the recommended install methods found in the links above.
 
 #### Windows
@@ -98,7 +91,6 @@ $env:PATH="C:\cygwin64\bin;C:\Program Files (x86)\GNU Arm Embedded Toolchain\10 
 
 #### macOS
 
-    brew install uncrustify
     brew instal libusb
     brew install --cask gcc-arm-embedded
 
@@ -157,10 +149,10 @@ Then run the following to set up the Python environment:
 
 To activate the environment, run:
 
-    poetry shell
+    eval $(poetry env activate)
 
 The command prompt will now start with `(.venv)` to remind you that you are
-working in the virtual environment. You should run `poetry shell` any time you
+working in the virtual environment. You should run `eval $(poetry env activate)` any time you
 open a new terminal window while working on `pybricks-micropython`.
 
 
@@ -222,6 +214,16 @@ Before committing your changes, be sure to run:
 
 This will automatically fix common problems in files that follow the MicroPython
 style.
+
+This can be run automatically before making a commit using [pre-commit][]. To
+enable it, run:
+
+    poetry run pre-commit install
+
+It will install a pre-commit git hook for this repository. On every commit,
+the coding style will be checked and fixed before the commit is done.
+
+[pre-commit]: https://pre-commit.com/
 
 
 ### Logical commits
@@ -305,7 +307,7 @@ Build and deploy firmware
 
 Pick your Hub from the `bricks` sub-directory you want to compile.
 
-    poetry shell
+    eval $(poetry env activate)
     make mpy-cross -j8
     make -C bricks/primehub -j8
 
