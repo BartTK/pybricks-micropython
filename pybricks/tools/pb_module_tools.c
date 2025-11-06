@@ -101,6 +101,48 @@ static mp_obj_t pb_module_tools_wait(size_t n_args, const mp_obj_t *pos_args, mp
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(pb_module_tools_wait_obj, 0, pb_module_tools_wait);
 
+static pbio_error_t pb_module_tools_wait_us_iter_once(pbio_os_state_t *state, mp_obj_t parent_obj) {
+    // Not a protothread, but using the state variable to store final time.
+    return pbio_util_time_has_passed(pbdrv_clock_get_us(), (uint32_t)*state) ? PBIO_SUCCESS: PBIO_ERROR_AGAIN;
+}
+
+static mp_obj_t pb_module_tools_wait_us(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    PB_PARSE_ARGS_FUNCTION(n_args, pos_args, kw_args,
+        PB_ARG_REQUIRED(time));
+
+    mp_int_t time = pb_obj_get_int(time_in);
+
+    // Outside run loop, do blocking wait to avoid async overhead.
+    if (!pb_module_tools_run_loop_is_active()) {
+        if (time > 0) {
+            mp_hal_delay_us(time);
+        }
+        return mp_const_none;
+    }
+
+    // Find statically allocated candidate that can be re-used again because
+    // it was never used or used and exhausted. If it stays at NULL then a new
+    // awaitable is allocated.
+    pb_type_async_t *reuse = NULL;
+    for (uint32_t i = 0; i < MP_ARRAY_SIZE(waits); i++) {
+        if (waits[i].parent_obj == MP_OBJ_NULL) {
+            reuse = &waits[i];
+            break;
+        }
+    }
+
+    pb_type_async_t config = {
+        // Not associated with any parent object.
+        .parent_obj = mp_const_none,
+        // Yield once for duration 0 to avoid blocking loops.
+        .iter_once = time == 0 ? NULL : pb_module_tools_wait_us_iter_once,
+        // No protothread here; use it to encode end time.
+        .state = pbdrv_clock_get_us() + (uint32_t)time,
+    };
+    return pb_type_async_wait_or_await(&config, &reuse, false);
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(pb_module_tools_wait_us_obj, 0, pb_module_tools_wait_us);
+
 /**
  * Reads one byte from stdin without blocking if a byte is available, and
  * optionally converts it to character representation.
@@ -298,6 +340,7 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR(pb_module_tools_hub_menu_obj, 2, pb_module_to
 static const mp_rom_map_elem_t tools_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__),    MP_ROM_QSTR(MP_QSTR_tools)                    },
     { MP_ROM_QSTR(MP_QSTR_wait),        MP_ROM_PTR(&pb_module_tools_wait_obj)         },
+    { MP_ROM_QSTR(MP_QSTR_wait_us),        MP_ROM_PTR(&pb_module_tools_wait_us_obj)         },
     { MP_ROM_QSTR(MP_QSTR_read_input_byte), MP_ROM_PTR(&pb_module_tools_read_input_byte_obj) },
     #if PYBRICKS_PY_TOOLS_APP_DATA
     { MP_ROM_QSTR(MP_QSTR_AppData),  MP_ROM_PTR(&pb_type_app_data)               },

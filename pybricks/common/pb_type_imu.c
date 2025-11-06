@@ -84,6 +84,34 @@ static mp_obj_t pb_type_imu_tilt(size_t n_args, const mp_obj_t *pos_args, mp_map
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_imu_tilt_obj, 1, pb_type_imu_tilt);
 
+// pybricks._common.IMU.tilt
+static mp_obj_t pb_type_imu_tilt_mdeg(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
+        pb_type_imu_obj_t, self,
+        PB_ARG_DEFAULT_TRUE(calibrated));
+
+    (void)self;
+
+    // Read acceleration in the user frame.
+    pbio_geometry_xyz_t accl;
+    if (mp_obj_is_true(calibrated_in)) {
+        pbio_imu_get_tilt_vector(&accl);
+    } else {
+        pbio_imu_get_acceleration(&accl, false);
+    }
+
+    mp_obj_t tilt[2];
+    // Pitch
+    float pitch = atan2f(-accl.x, sqrtf(accl.z * accl.z + accl.y * accl.y));
+    tilt[0] = mp_obj_new_int_from_float(pitch * 1000 * 57.296f);
+
+    // Roll
+    float roll = atan2f(accl.y, accl.z);
+    tilt[1] = mp_obj_new_int_from_float(roll * 1000 * 57.296f);
+    return mp_obj_new_tuple(2, tilt);
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_imu_tilt_mdeg_obj, 1, pb_type_imu_tilt_mdeg);
+
 static void pb_type_imu_extract_axis(mp_obj_t obj_in, pbio_geometry_xyz_t *vector) {
     if (!mp_obj_is_type(obj_in, &pb_type_Matrix)) {
         mp_raise_TypeError(MP_ERROR_TEXT("Axis must be Matrix."));
@@ -353,8 +381,9 @@ static const mp_rom_map_elem_t pb_type_imu_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_settings),         MP_ROM_PTR(&pb_type_imu_settings_obj)        },
     { MP_ROM_QSTR(MP_QSTR_stationary),       MP_ROM_PTR(&pb_type_imu_stationary_obj)      },
     { MP_ROM_QSTR(MP_QSTR_tilt),             MP_ROM_PTR(&pb_type_imu_tilt_obj)            },
+    { MP_ROM_QSTR(MP_QSTR_tilt_mdeg),        MP_ROM_PTR(&pb_type_imu_tilt_mdeg_obj)       },
     { MP_ROM_QSTR(MP_QSTR_up),               MP_ROM_PTR(&pb_type_imu_up_obj)              },
-    { MP_ROM_QSTR(MP_QSTR_orientation),      MP_ROM_PTR(&common_IMU_orientation_obj)     },
+    { MP_ROM_QSTR(MP_QSTR_orientation),      MP_ROM_PTR(&common_IMU_orientation_obj)      },
 };
 static MP_DEFINE_CONST_DICT(pb_type_imu_locals_dict, pb_type_imu_locals_dict_table);
 
