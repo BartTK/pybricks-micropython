@@ -5,8 +5,7 @@
 // Contains the MicroPython HAL for STM32-based Pybricks ports.
 
 #include <stdint.h>
-
-#include <contiki.h>
+#include <string.h>
 
 #include <pbdrv/clock.h>
 #include <pbdrv/config.h>
@@ -28,7 +27,7 @@ void mp_hal_delay_ms(mp_uint_t Delay) {
         // This macro will execute the necessary idle behaviour.  It may
         // raise an exception, switch threads or enter sleep mode (waiting for
         // (at least) the SysTick interrupt).
-        MICROPY_EVENT_POLL_HOOK
+        mp_event_wait_indefinite();
     } while (pbdrv_clock_get_ms() - start < Delay);
 }
 
@@ -49,11 +48,13 @@ int mp_hal_stdin_rx_chr(void) {
 
     // wait for rx interrupt
     while (size = 1, pbsys_host_stdin_read(&c, &size) != PBIO_SUCCESS) {
-        MICROPY_EVENT_POLL_HOOK
+        mp_event_wait_indefinite();
     }
 
     return c;
 }
+
+static bool ended_on_new_line = true;
 
 // Send string of given length
 mp_uint_t mp_hal_stdout_tx_strn(const char *str, size_t len) {
@@ -63,6 +64,7 @@ mp_uint_t mp_hal_stdout_tx_strn(const char *str, size_t len) {
         uint32_t size = remaining;
         pbio_error_t err = pbsys_host_stdout_write((const uint8_t *)str, &size);
         if (err == PBIO_SUCCESS) {
+            ended_on_new_line = str[size - 1] == '\n';
             str += size;
             remaining -= size;
         } else if (err != PBIO_ERROR_AGAIN) {
@@ -71,14 +73,42 @@ mp_uint_t mp_hal_stdout_tx_strn(const char *str, size_t len) {
             return len - remaining;
         }
 
-        MICROPY_EVENT_POLL_HOOK
+        // Allow long prints to be interrupted.
+        if (remaining) {
+            mp_event_wait_indefinite();
+        }
     }
 
     return len;
 }
 
-void mp_hal_stdout_tx_flush(void) {
+static void pb_stdout_flush(void) {
+    // Don't raise, just wait for data to clear.
     while (!pbsys_host_tx_is_idle()) {
-        MICROPY_EVENT_POLL_HOOK
+        MICROPY_VM_HOOK_LOOP;
+    }
+}
+
+/**
+ * Flushes stdout and adds a newline if the last printed character was not a
+ * new line.
+ */
+void pb_stdout_flush_to_new_line(void) {
+
+    pb_stdout_flush();
+
+    // A program may be interrupted in the middle of a long print, or the user
+    // may have printed without a newline. Ensure we end on a new line.
+    if (!ended_on_new_line) {
+
+        // We have just flushed, so we should be able to easily buffer two more
+        // characters. It is only for aesthetics, so it is not critical if this
+        // fails. We flush again below just in case.
+        const char *eol = "\r\n";
+        uint32_t size = strlen(eol);
+        pbsys_host_stdout_write((const uint8_t *)eol, &size);
+        ended_on_new_line = true;
+
+        pb_stdout_flush();
     }
 }

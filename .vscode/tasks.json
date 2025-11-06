@@ -37,9 +37,12 @@
             "detail": "Build the PrimeHub project"
         },
         {
-            "label": "build virtualhub",
+            "options": {
+                "cwd": "${workspaceFolder}/bricks/virtualhub"
+            },
+            "label": "build virtualhub (debug)",
             "type": "shell",
-            "command": "poetry run make -C bricks/virtualhub DEBUG=1 COPT=-O0 CROSS_COMPILE= -j"
+            "command": "make -C ../../micropython/mpy-cross -j && poetry run make DEBUG=1 BUILD=build-debug -j",
         },
         {
             "label": "build test-pbio",

@@ -5,7 +5,7 @@
 # This file is shared by all bare-metal Arm Pybricks ports.
 
 THIS_MAKEFILE := $(lastword $(MAKEFILE_LIST))
-PBTOP := ../$(patsubst %/_common/arm_none_eabi.mk,%,$(THIS_MAKEFILE))
+PBTOP := ../$(patsubst %/_common/common.mk,%,$(THIS_MAKEFILE))
 
 # Bricks must specify the following variables in their Makefile
 
@@ -101,8 +101,6 @@ MICROPY_ROM_TEXT_COMPRESSION ?= 1
 include $(TOP)/py/py.mk
 include $(TOP)/extmod/extmod.mk
 
-CROSS_COMPILE ?= arm-none-eabi-
-
 INC += -I.
 INC += -I$(TOP)
 ifeq ($(PB_MCU_FAMILY),STM32)
@@ -155,6 +153,18 @@ OPENOCD ?= openocd
 OPENOCD_CONFIG ?= openocd_stm32$(PB_MCU_SERIES_LCASE).cfg
 TEXT0_ADDR ?= 0x08000000
 
+ifeq ($(PB_MCU_FAMILY),native)
+UNAME_S := $(shell uname -s)
+LD = $(CC)
+CFLAGS += $(INC) -Wall -Werror -Wdouble-promotion -Wfloat-conversion -std=gnu99 $(COPT) -D_GNU_SOURCE
+ifeq ($(UNAME_S),Linux)
+LDFLAGS += -Wl,-Map=$@.map,--cref -Wl,--gc-sections
+else ifeq ($(UNAME_S),Darwin)
+LDFLAGS += -Wl,-map,$@.map -Wl,-dead_strip
+endif
+LIBS = -lm
+else # end native, begin embedded
+CROSS_COMPILE ?= arm-none-eabi-
 ifeq ($(PB_MCU_FAMILY),STM32)
 CFLAGS_MCU_F0 = -mthumb -mtune=cortex-m0 -mcpu=cortex-m0 -msoft-float
 CFLAGS_MCU_F4 = -mthumb -mtune=cortex-m4 -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard
@@ -200,9 +210,14 @@ endif
 # avoid doubles
 CFLAGS += -fsingle-precision-constant -Wdouble-promotion
 
+endif # end embedded, begin common
+
 # Tune for Debugging or Optimization
-ifeq ($(DEBUG), 1)
-CFLAGS += -Og -ggdb
+ifeq ($(COVERAGE), 1)
+CFLAGS += --coverage -fprofile-arcs -ftest-coverage
+LDFLAGS += --coverage
+else ifeq ($(DEBUG), 1)
+CFLAGS += -O0 -ggdb
 else ifeq ($(DEBUG), 2)
 CFLAGS += -Os -DNDEBUG -flto=auto
 else
@@ -218,7 +233,7 @@ CFLAGS += -DSTM32_H='<stm32$(PB_MCU_SERIES_LCASE)xx.h>'
 CFLAGS += -DSTM32_HAL_H='<stm32$(PB_MCU_SERIES_LCASE)xx_hal.h>'
 endif
 
-LIBS = "$(shell $(CC) $(CFLAGS) -print-libgcc-file-name)"
+LIBS += "$(shell $(CC) $(CFLAGS) -print-libgcc-file-name)"
 
 # Sources and libraries common to all pybricks bricks
 
@@ -233,13 +248,26 @@ include $(PBTOP)/bricks/_common/sources.mk
 # between the top level directory and the micropython/ subdirectory.
 
 PY_EXTRA_SRC_C = $(addprefix shared/,\
-	libc/string0.c \
-	runtime/gchelper_native.c \
 	runtime/interrupt_char.c \
 	runtime/pyexec.c \
 	runtime/stdout_helpers.c \
+	)
+
+ifeq ($(PB_MCU_FAMILY),native)
+PY_EXTRA_SRC_C += $(addprefix shared/,\
+	runtime/gchelper_generic.c \
 	runtime/sys_stdio_mphal.c \
 	)
+PY_EXTRA_SRC_C += $(addprefix bricks/virtualhub/,\
+	pbio_os_hook.c \
+	)
+else
+PY_EXTRA_SRC_C += $(addprefix shared/,\
+	libc/string0.c \
+	runtime/gchelper_native.c \
+	runtime/sys_stdio_mphal.c \
+	)
+endif
 
 ifneq ($(PBIO_PLATFORM),move_hub)
 # to avoid adding unused root pointers
@@ -262,7 +290,9 @@ PY_EXTRA_SRC_C += $(addprefix bricks/_common/,\
 endif
 
 # Not all MCUs support thumb2 instructions.
-ifeq ($(PB_MCU_SERIES),$(filter $(PB_MCU_SERIES),AT91SAM7 F0 TIAM1808))
+ifeq ($(PB_MCU_FAMILY),native)
+SRC_S +=
+else ifeq ($(PB_MCU_SERIES),$(filter $(PB_MCU_SERIES),AT91SAM7 F0 TIAM1808))
 SRC_S += shared/runtime/gchelper_thumb1.s
 else
 SRC_S += shared/runtime/gchelper_thumb2.s
@@ -561,8 +591,12 @@ CFLAGS += -DMICROPY_MODULE_FROZEN_MPY
 MPY_TOOL_FLAGS += -mlongint-impl none
 endif
 
+ifneq ($(PB_MCU_FAMILY),native)
 # Main firmware build targets
 TARGETS := $(BUILD)/firmware.zip
+else
+TARGETS := $(BUILD)/firmware.elf
+endif
 
 all: $(TARGETS)
 
@@ -672,5 +706,9 @@ deploy: $(BUILD)/firmware.zip
 deploy-openocd: $(BUILD)/firmware-base.bin
 	$(ECHO) "Writing $< to the board via ST-LINK using OpenOCD"
 	$(Q)$(OPENOCD) -f $(OPENOCD_CONFIG) -c "stm_flash $< $(TEXT0_ADDR)"
+
+# Run emulation build on a POSIX system using normal stdio
+run: $(BUILD)/firmware.elf
+	@$(BUILD)/firmware.elf
 
 include $(TOP)/py/mkrules.mk

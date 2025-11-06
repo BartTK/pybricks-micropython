@@ -134,6 +134,7 @@
 // to print such value. So, we avoid int32_t and use int directly.
 #define UINT_FMT "%u"
 #define INT_FMT "%d"
+#define HEX_FMT "%x"
 typedef intptr_t mp_int_t; // must be pointer size
 typedef uintptr_t mp_uint_t; // must be pointer size
 
@@ -149,8 +150,14 @@ typedef long mp_off_t;
 #define MICROPY_END_ATOMIC_SECTION(state) (void)(state)
 #endif
 
+// Optional extra code to run before MicroPython drives the event loop.
+#ifndef PYBRICKS_VM_HOOK_LOOP_EXTRA
+#define PYBRICKS_VM_HOOK_LOOP_EXTRA
+#endif
+
 #define MICROPY_VM_HOOK_LOOP \
     do { \
+        PYBRICKS_VM_HOOK_LOOP_EXTRA \
         extern bool pbio_os_run_processes_once(void); \
         pbio_os_run_processes_once(); \
     } while (0);
@@ -161,10 +168,18 @@ typedef long mp_off_t;
         } \
 } while (0)
 
-#define MICROPY_EVENT_POLL_HOOK \
+#define MICROPY_INTERNAL_EVENT_HOOK \
     do { \
-        extern void pb_event_poll_hook(void); \
-        pb_event_poll_hook(); \
+        PYBRICKS_VM_HOOK_LOOP_EXTRA \
+        extern bool pbio_os_run_processes_once(void); \
+        while (pbio_os_run_processes_once()) { \
+        } \
+    } while (0);
+
+#define MICROPY_INTERNAL_WFE(TIMEOUT_MS) \
+    do { \
+        extern void pbio_os_run_processes_and_wait_for_event(void); \
+        pbio_os_run_processes_and_wait_for_event(); \
     } while (0);
 
 // We need to provide a declaration/definition of alloca()

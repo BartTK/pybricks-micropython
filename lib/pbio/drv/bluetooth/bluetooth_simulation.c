@@ -6,11 +6,10 @@
 #if PBDRV_CONFIG_BLUETOOTH_SIMULATION
 
 #include <errno.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <termios.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "bluetooth.h"
 #include <pbdrv/bluetooth.h>
@@ -60,15 +59,9 @@ pbio_error_t pbdrv_bluetooth_send_pybricks_value_notification(pbio_os_state_t *s
         return PBIO_SUCCESS;
     }
 
-    int ret = write(STDOUT_FILENO, data, size);
-    // uint32_t ret = *size;
-    // int r = write(STDOUT_FILENO, data, *size);
-    // if (r >= 0) {
-    //     // in case of an error in the syscall, report no bytes written
-    //     ret = 0;
-    // }
+    int ret = write(STDOUT_FILENO, data + 1, size - 1);
     (void)ret;
-    // return PBIO_SUCCESS;
+
     PBIO_OS_ASYNC_END(PBIO_SUCCESS);
 }
 
@@ -136,7 +129,15 @@ pbio_error_t pbdrv_bluetooth_controller_initialize(pbio_os_state_t *state, pbio_
 #define STDIN_HEADER_SIZE (1)
 
 static void pbdrv_bluetooth_simulation_tick_handler() {
+    #ifdef PBDRV_CONFIG_RUN_ON_CI
+    // CI and MicroPython test suite have lots of problems with stdin. It is
+    // only needed for the REPL and interactive input, so don't bother on CI.
+    return;
+    #endif
+
     uint8_t buf[256 + STDIN_HEADER_SIZE];
+
+    // This has been made non-blocking in platform.c.
     ssize_t r = read(STDIN_FILENO, buf + STDIN_HEADER_SIZE, sizeof(buf) - STDIN_HEADER_SIZE);
 
     if (r > 0) {
@@ -176,40 +177,6 @@ static pbio_error_t pbdrv_bluetooth_simulation_process_thread(pbio_os_state_t *s
 }
 
 void pbdrv_bluetooth_init_hci(void) {
-    struct termios oldt, newt;
-
-    if (tcgetattr(STDIN_FILENO, &oldt) != 0) {
-        printf("DEBUG: Failed to get terminal attributes\n");
-        return;
-    }
-
-    newt = oldt;
-
-    // Get one char at a time instead of newline and disable CTRL+C for exit.
-    newt.c_lflag &= ~(ICANON | ECHO | ISIG);
-
-    // MicroPython REPL expects \r for newline.
-    newt.c_iflag |= INLCR;
-    newt.c_iflag &= ~ICRNL;
-
-    if (tcsetattr(STDIN_FILENO, TCSANOW, &newt) != 0) {
-        printf("Failed to set terminal attributes\n");
-        return;
-    }
-
-    // Set stdin non-blocking so we can service it in the runloop like on
-    // embedded hubs.
-    int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
-    if (flags == -1) {
-        printf("Failed to get fcntl flags\n");
-        return;
-    }
-
-    if (fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK) == -1) {
-        printf("Failed to set non-blocking\n");
-        return;
-    }
-
     bluetooth_thread_err = PBIO_ERROR_AGAIN;
     bluetooth_thread_state = 0;
     pbio_os_process_start(&pbdrv_bluetooth_simulation_process, pbdrv_bluetooth_simulation_process_thread, NULL);

@@ -41,17 +41,6 @@
 #include "py/stackctrl.h"
 #include "py/stream.h"
 
-// Implementation for MICROPY_EVENT_POLL_HOOK
-void pb_event_poll_hook(void) {
-
-    while (pbio_os_run_processes_once()) {
-    }
-
-    mp_handle_pending(true);
-
-    pbio_os_run_processes_and_wait_for_event();
-}
-
 // callback for when stop button is pressed in IDE or on hub
 void pbsys_main_stop_program(bool force_stop) {
     if (force_stop) {
@@ -78,6 +67,10 @@ bool pbsys_main_stdin_event(uint8_t c) {
 
 // Prints the exception that ended the program.
 static void print_final_exception(mp_obj_t exc, int ret) {
+
+    // Ensure exception prints on new line.
+    pb_stdout_flush_to_new_line();
+
     nlr_buf_t nlr;
     nlr.ret_val = NULL;
 
@@ -406,6 +399,10 @@ void pbsys_main_run_program(pbsys_main_program_t *program) {
             run_user_program();
             break;
     }
+
+    // Ensure everything is written before the user application is considered
+    // done, so that the host does not receive stdout after receiving stop.
+    pb_stdout_flush_to_new_line();
 }
 
 void pbsys_main_run_program_cleanup(void) {

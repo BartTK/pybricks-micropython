@@ -11,18 +11,21 @@ if [[ $CI != "true" ]]; then
     NOT_CI="true"
 fi
 
+COVERAGE=1
+export COVERAGE
+
 SCRIPT_DIR=$(readlink -f "$(dirname "$0")")
 BRICK_DIR="$SCRIPT_DIR/bricks/virtualhub"
 MP_TEST_DIR="$SCRIPT_DIR/micropython/tests"
 PB_TEST_DIR=$"$SCRIPT_DIR/tests"
-BUILD_DIR="$BRICK_DIR/build${COVERAGE:+-coverage}"
+BUILD_DIR_NAME="build${COVERAGE:+-coverage}"
+BUILD_DIR="$BRICK_DIR/$BUILD_DIR_NAME"
 PBIO_DIR="$SCRIPT_DIR/lib/pbio"
 
-make -s -j $(nproc --all) -C "$BRICK_DIR"
+make mpy-cross -j
+make -s -j $(nproc --all) -C "$BRICK_DIR" BUILD="$BUILD_DIR_NAME" COPT=-DPBDRV_CONFIG_RUN_ON_CI
 
-export MICROPY_MICROPYTHON="$BUILD_DIR/virtualhub-micropython"
-export PYTHONPATH="$PBIO_DIR/cpython"
-export PBIO_VIRTUAL_PLATFORM_MODULE=pbio_virtual.platform.robot
+export MICROPY_MICROPYTHON="$BUILD_DIR/firmware.elf"
 
 cd "$MP_TEST_DIR"
 ./run-tests.py --test-dirs $(find "$PB_TEST_DIR/virtualhub" -type d -and ! -wholename "*/build/*"  -and ! -wholename "*/run_test.py") "$@" || \

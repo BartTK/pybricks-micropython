@@ -54,12 +54,19 @@
             "console": "integratedTerminal"
         },
         {
+            "name":"Virtual Hub Animation",
+            "type":"debugpy",
+            "request":"launch",
+            "program":"${workspaceFolder}/lib/pbio/platform/virtual_hub/animation.py",
+            "console":"integratedTerminal"
+        },
+        {
             "name": "virtualhub",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/bricks/virtualhub/build-debug/virtualhub-micropython",
+            "program": "${workspaceFolder}/bricks/virtualhub/build-debug/firmware.elf",
             "args": [
-                "${workspaceFolder}/tests/virtualhub/motor/car.py"
+                "${workspaceFolder}/tests/virtualhub/motor/car.py",
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
@@ -83,14 +90,7 @@
                     "ignoreFailures": false
                 }
             ],
-            "preLaunchTask": "build virtualhub"
-        },
-        {
-            "name":"Virtual Hub Animation",
-            "type":"debugpy",
-            "request":"launch",
-            "program":"${workspaceFolder}/lib/pbio/platform/virtual_hub/animation.py",
-            "console":"integratedTerminal"
+            "preLaunchTask": "build virtualhub (debug)"
         },
         {
             "name": "test-pbio",
